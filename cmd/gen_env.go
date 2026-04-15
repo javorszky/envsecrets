@@ -45,13 +45,13 @@ Examples:
 		if err != nil {
 			return fmt.Errorf("opening template %q: %w", templateFlag, err)
 		}
-		defer tpl.Close()
+		defer func() { _ = tpl.Close() }()
 
 		out, err := os.Create(outputFlag)
 		if err != nil {
 			return fmt.Errorf("creating output %q: %w", outputFlag, err)
 		}
-		defer out.Close()
+		defer func() { _ = out.Close() }()
 
 		w := bufio.NewWriter(out)
 		scanner := bufio.NewScanner(tpl)
@@ -65,14 +65,14 @@ Examples:
 			// Preserve blank lines and comments unchanged.
 			trimmed := strings.TrimSpace(line)
 			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-				fmt.Fprintln(w, line)
+				_, _ = fmt.Fprintln(w, line)
 				continue
 			}
 
 			// Split on first `=` only.
 			parts := strings.SplitN(line, "=", 2)
 			if len(parts) != 2 {
-				fmt.Fprintln(w, line)
+				_, _ = fmt.Fprintln(w, line)
 				continue
 			}
 
@@ -80,7 +80,7 @@ Examples:
 
 			if !strings.HasPrefix(envVal, "secret:") {
 				// Plain value — copy verbatim.
-				fmt.Fprintln(w, line)
+				_, _ = fmt.Fprintln(w, line)
 				continue
 			}
 
@@ -91,7 +91,7 @@ Examples:
 				return fmt.Errorf("line %d: resolving %q: %w", lineNo, secretKey, fetchErr)
 			}
 
-			fmt.Fprintf(w, "%s=%s\n", envKey, val)
+			_, _ = fmt.Fprintf(w, "%s=%s\n", envKey, val)
 			resolved++
 		}
 
@@ -103,7 +103,7 @@ Examples:
 			return fmt.Errorf("writing output: %w", err)
 		}
 
-		fmt.Fprintf(os.Stdout, "✓ wrote %q (%d secret(s) resolved)\n", outputFlag, resolved)
+		_, _ = fmt.Fprintf(os.Stdout, "✓ wrote %q (%d secret(s) resolved)\n", outputFlag, resolved)
 
 		return nil
 	},

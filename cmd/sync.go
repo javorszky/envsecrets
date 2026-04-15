@@ -26,14 +26,14 @@ Examples:
 	RunE: func(cmd *cobra.Command, args []string) error {
 		mgr := secrets.New(vaultFlag)
 
-		fmt.Fprintf(os.Stdout, "syncing from 1Password vault %q...\n", vaultFlag)
+		_, _ = fmt.Fprintf(os.Stdout, "syncing from 1Password vault %q...\n", vaultFlag)
 
 		n, err := mgr.Sync()
 		if err != nil {
 			return fmt.Errorf("sync failed: %w", err)
 		}
 
-		fmt.Fprintf(os.Stdout, "✓ synced %d secret(s) into Keychain\n", n)
+		_, _ = fmt.Fprintf(os.Stdout, "✓ synced %d secret(s) into Keychain\n", n)
 
 		return nil
 	},

@@ -166,13 +166,7 @@ func (c *Client) classifyErrorWithOutput(key string, err error, out []byte) erro
 // output without pulling in encoding/json at the package level.
 // The JSON looks like: [{"id":"...","title":"MY_KEY","vault":{...}}, ...]
 func parseTitles(jsonStr string) ([]string, error) {
-	// Use encoding/json via a local import to keep the function self-contained.
-	type item struct {
-		Title string `json:"title"`
-	}
-
-	// We do need encoding/json here — do a quick manual scan instead to avoid
-	// the import cycle concern (there is none, but let's keep it explicit).
+	// Manual scan instead of encoding/json to keep the package lean.
 	var titles []string
 
 	// Split on `"title":"` and extract the value up to the next `"`.

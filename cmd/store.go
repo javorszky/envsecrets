@@ -28,7 +28,7 @@ Examples:
 			return fmt.Errorf("store failed: %w", err)
 		}
 
-		fmt.Fprintf(os.Stdout, "✓ stored %q\n", key)
+		_, _ = fmt.Fprintf(os.Stdout, "✓ stored %q\n", key)
 
 		return nil
 	},
