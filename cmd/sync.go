@@ -6,7 +6,6 @@ import (
 
 	"github.com/javorszky/envsecrets/internal/secrets"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var syncCmd = &cobra.Command{
@@ -25,7 +24,7 @@ Examples:
   envsecrets sync --vault Work`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		vault := viper.GetString("vault")
+		vault := cfg.Vault
 		mgr := secrets.New(vault)
 
 		_, _ = fmt.Fprintf(os.Stdout, "syncing from 1Password vault %q...\n", vault)
