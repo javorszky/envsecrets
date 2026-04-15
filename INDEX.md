@@ -7,7 +7,7 @@ Codebase table of contents for quick navigation. Consult this before scanning th
 | File | Purpose |
 |------|---------|
 | `main.go` | Entry point. Calls `cmd.Execute()`. |
-| `go.mod` | Module `github.com/javorszky/envsecrets`, Go 1.26.2. Depends on `spf13/cobra`. |
+| `go.mod` | Module `github.com/javorszky/envsecrets`, Go 1.26.2. Depends on `spf13/cobra`, `spf13/viper`. |
 | `go.sum` | Dependency checksums. |
 | `LICENSE` | MIT license. |
 | `README.md` | User-facing documentation: installation, usage, architecture. |
@@ -29,13 +29,16 @@ All commands import `internal/secrets` and use `secrets.New(vaultFlag)` to creat
 
 | File | Command | Args / Flags | Description |
 |------|---------|-------------|-------------|
-| `root.go` | (root) | `--vault` (persistent) | Root command setup. Exports `Execute()`. Default vault from `$ENVSECRETS_VAULT` or `"Private"`. |
+| `root.go` | (root) | `--vault` (persistent), `--config` (persistent) | Root command setup. Exports `Execute()`. Initialises viper config (file + env bindings). Default vault: `$ENVSECRETS_VAULT` → config file → `"Private"`. Config file: `$ENVSECRETS_CONFIG` → `~/.config/envsecrets.toml`. |
+| `config.go` | `config` | none | Parent command for configuration subcommands. |
+| `config_init.go` | `config init` | none | Writes `~/.config/envsecrets.toml` with defaults and inline documentation. Errors if file already exists. |
+| `config_show.go` | `config show` | none | Prints all config options, current values, and source (`flag` / `env` / `config file` / `default`). |
 | `store.go` | `store <key> <value>` | 2 positional | Writes a secret to both backends via `Manager.Set()`. |
 | `fetch.go` | `fetch <key>` | 1 positional | Reads a secret via `Manager.Get()`. Prints raw value to stdout (no newline). |
 | `update.go` | `update <key> <value>` | 2 positional | Semantic alias for store. Calls `Manager.Update()`. |
 | `delete.go` | `delete <key>` | 1 positional, `--force`/`-f` | Deletes from both backends. Prompts for confirmation unless `--force`. |
 | `sync.go` | `sync` | none | Pulls all items from 1Password vault into Keychain. Reports count. |
-| `gen_env.go` | `gen-env` | `--template` (default `.env.tpl`), `--output` (default `.env`) | Resolves a template file: `secret:` values are fetched via `Manager.Get()`, other lines copied verbatim. |
+| `gen_env.go` | `gen-env` | `--template` (default `.env.tpl` → `$ENVSECRETS_TEMPLATE` → config file), `--output` (default `.env` → `$ENVSECRETS_OUTPUT` → config file) | Resolves a template file: `secret:` values are fetched via `Manager.Get()`, other lines copied verbatim. |
 
 ## `internal/secrets/` - Orchestration Layer
 

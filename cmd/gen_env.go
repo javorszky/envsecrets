@@ -8,6 +8,7 @@ import (
 
 	"github.com/javorszky/envsecrets/internal/secrets"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -39,17 +40,19 @@ Examples:
   envsecrets gen-env --vault Work --template staging.env.tpl --output staging.env`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		mgr := secrets.New(vaultFlag)
+		mgr := secrets.New(viper.GetString("vault"))
 
-		tpl, err := os.Open(templateFlag)
+		templatePath := viper.GetString("template")
+		tpl, err := os.Open(templatePath)
 		if err != nil {
-			return fmt.Errorf("opening template %q: %w", templateFlag, err)
+			return fmt.Errorf("opening template %q: %w", templatePath, err)
 		}
 		defer func() { _ = tpl.Close() }()
 
-		out, err := os.Create(outputFlag)
+		outputPath := viper.GetString("output")
+		out, err := os.Create(outputPath)
 		if err != nil {
-			return fmt.Errorf("creating output %q: %w", outputFlag, err)
+			return fmt.Errorf("creating output %q: %w", outputPath, err)
 		}
 		defer func() { _ = out.Close() }()
 
@@ -103,7 +106,7 @@ Examples:
 			return fmt.Errorf("writing output: %w", err)
 		}
 
-		_, _ = fmt.Fprintf(os.Stdout, "✓ wrote %q (%d secret(s) resolved)\n", outputFlag, resolved)
+		_, _ = fmt.Fprintf(os.Stdout, "✓ wrote %q (%d secret(s) resolved)\n", outputPath, resolved)
 
 		return nil
 	},
@@ -112,6 +115,13 @@ Examples:
 func init() {
 	rootCmd.AddCommand(genEnvCmd)
 
-	genEnvCmd.Flags().StringVar(&templateFlag, "template", ".env.tpl", "Path to the template file")
-	genEnvCmd.Flags().StringVar(&outputFlag, "output", ".env", "Path to write the resolved env file")
+	genEnvCmd.Flags().StringVar(&templateFlag, "template", "", `template file path (default: ".env.tpl", or $ENVSECRETS_TEMPLATE, or config file)`)
+	genEnvCmd.Flags().StringVar(&outputFlag, "output", "", `output file path (default: ".env", or $ENVSECRETS_OUTPUT, or config file)`)
+
+	_ = viper.BindPFlag("template", genEnvCmd.Flags().Lookup("template"))
+	_ = viper.BindPFlag("output", genEnvCmd.Flags().Lookup("output"))
+	_ = viper.BindEnv("template", "ENVSECRETS_TEMPLATE")
+	_ = viper.BindEnv("output", "ENVSECRETS_OUTPUT")
+	viper.SetDefault("template", ".env.tpl")
+	viper.SetDefault("output", ".env")
 }
