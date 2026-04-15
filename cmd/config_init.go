@@ -44,7 +44,7 @@ The file is written to ~/.config/envsecrets.toml by default.
 Override the location with --config or $ENVSECRETS_CONFIG.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		path := configFilePath()
+		path := cfg.FilePath
 
 		if _, err := os.Stat(path); err == nil {
 			return fmt.Errorf("config file already exists: %s — delete it first or edit it manually", path)

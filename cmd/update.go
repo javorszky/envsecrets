@@ -6,7 +6,6 @@ import (
 
 	"github.com/javorszky/envsecrets/internal/secrets"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var updateCmd = &cobra.Command{
@@ -23,7 +22,7 @@ Examples:
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		key, value := args[0], args[1]
-		mgr := secrets.New(viper.GetString("vault"))
+		mgr := secrets.New(cfg.Vault)
 
 		if err := mgr.Update(key, value); err != nil {
 			return fmt.Errorf("update failed: %w", err)

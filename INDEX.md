@@ -25,20 +25,26 @@ Codebase table of contents for quick navigation. Consult this before scanning th
 
 ## `cmd/` - CLI Commands (Cobra)
 
-All commands import `internal/secrets` and use `secrets.New(vaultFlag)` to create a `Manager`.
+All commands share a package-level `cfg *config.Config` populated by `initConfig()` (registered via `cobra.OnInitialize` in `root.go`). No command imports viper directly.
 
 | File | Command | Args / Flags | Description |
 |------|---------|-------------|-------------|
-| `root.go` | (root) | `--vault` (persistent), `--config` (persistent) | Root command setup. Exports `Execute()`. Initialises viper config (file + env bindings). Default vault: `$ENVSECRETS_VAULT` → config file → `"Private"`. Config file: `$ENVSECRETS_CONFIG` → `~/.config/envsecrets.toml`. |
+| `root.go` | (root) | `--vault` (persistent), `--config` (persistent) | Root command setup. Exports `Execute()`. Calls `config.Load(configFile)` in `initConfig()`, then applies CLI flag overrides to the returned `*config.Config`. Stores result in package-level `cfg`. |
 | `config.go` | `config` | none | Parent command for configuration subcommands. |
-| `config_init.go` | `config init` | none | Writes `~/.config/envsecrets.toml` with defaults and inline documentation. Errors if file already exists. |
-| `config_show.go` | `config show` | none | Prints all config options, current values, and source (`flag` / `env` / `config file` / `default`). |
-| `store.go` | `store <key> <value>` | 2 positional | Writes a secret to both backends via `Manager.Set()`. |
-| `fetch.go` | `fetch <key>` | 1 positional | Reads a secret via `Manager.Get()`. Prints raw value to stdout (no newline). |
-| `update.go` | `update <key> <value>` | 2 positional | Semantic alias for store. Calls `Manager.Update()`. |
-| `delete.go` | `delete <key>` | 1 positional, `--force`/`-f` | Deletes from both backends. Prompts for confirmation unless `--force`. |
-| `sync.go` | `sync` | none | Pulls all items from 1Password vault into Keychain. Reports count. |
-| `gen_env.go` | `gen-env` | `--template` (default `.env.tpl` → `$ENVSECRETS_TEMPLATE` → config file), `--output` (default `.env` → `$ENVSECRETS_OUTPUT` → config file) | Resolves a template file: `secret:` values are fetched via `Manager.Get()`, other lines copied verbatim. |
+| `config_init.go` | `config init` | none | Writes `~/.config/envsecrets.toml` with defaults and inline documentation. Uses `cfg.FilePath`. Errors if file already exists. |
+| `config_show.go` | `config show` | none | Prints all config options, current values, and source (`flag` / `env` / `config file` / `default`) from `cfg.Sources`. |
+| `store.go` | `store <key> <value>` | 2 positional | Writes a secret to both backends via `Manager.Set()`. Uses `cfg.Vault`. |
+| `fetch.go` | `fetch <key>` | 1 positional | Reads a secret via `Manager.Get()`. Prints raw value to stdout (no newline). Uses `cfg.Vault`. |
+| `update.go` | `update <key> <value>` | 2 positional | Semantic alias for store. Calls `Manager.Update()`. Uses `cfg.Vault`. |
+| `delete.go` | `delete <key>` | 1 positional, `--force`/`-f` | Deletes from both backends. Prompts for confirmation unless `--force`. Uses `cfg.Vault`. |
+| `sync.go` | `sync` | none | Pulls all items from 1Password vault into Keychain. Reports count. Uses `cfg.Vault`. |
+| `gen_env.go` | `gen-env` | `--template` (default `.env.tpl` → `$ENVSECRETS_TEMPLATE` → config file), `--output` (default `.env` → `$ENVSECRETS_OUTPUT` → config file) | Resolves a template file: `secret:` values are fetched via `Manager.Get()`, other lines copied verbatim. Uses `cfg.Vault`, `cfg.Template`, `cfg.Output`. |
+
+## `internal/config/` - Configuration
+
+| File | Key Exports | Description |
+|------|-------------|-------------|
+| `config.go` | `Config` struct, `Sources` struct, `Load(configFlagValue string) *Config` | Single home for all viper logic. `Load` resolves config file path (`--config` flag → `$ENVSECRETS_CONFIG` → `~/.config/envsecrets.toml`), binds env vars, sets defaults, reads the TOML file, and returns a fully-populated `*Config`. Source attribution (`"default"` / `"config file"` / `"env ($VAR)"`) is set on `Config.Sources`; flag overrides (`"flag (--name)"`) are applied by the cmd layer after Load returns. Viper is imported **only** in this package. |
 
 ## `internal/secrets/` - Orchestration Layer
 

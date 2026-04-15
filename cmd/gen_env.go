@@ -8,7 +8,6 @@ import (
 
 	"github.com/javorszky/envsecrets/internal/secrets"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var (
@@ -40,16 +39,16 @@ Examples:
   envsecrets gen-env --vault Work --template staging.env.tpl --output staging.env`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		mgr := secrets.New(viper.GetString("vault"))
+		mgr := secrets.New(cfg.Vault)
 
-		templatePath := viper.GetString("template")
+		templatePath := cfg.Template
 		tpl, err := os.Open(templatePath)
 		if err != nil {
 			return fmt.Errorf("opening template %q: %w", templatePath, err)
 		}
 		defer func() { _ = tpl.Close() }()
 
-		outputPath := viper.GetString("output")
+		outputPath := cfg.Output
 		out, err := os.Create(outputPath)
 		if err != nil {
 			return fmt.Errorf("creating output %q: %w", outputPath, err)
@@ -117,11 +116,4 @@ func init() {
 
 	genEnvCmd.Flags().StringVar(&templateFlag, "template", "", `template file path (default: ".env.tpl", or $ENVSECRETS_TEMPLATE, or config file)`)
 	genEnvCmd.Flags().StringVar(&outputFlag, "output", "", `output file path (default: ".env", or $ENVSECRETS_OUTPUT, or config file)`)
-
-	_ = viper.BindPFlag("template", genEnvCmd.Flags().Lookup("template"))
-	_ = viper.BindPFlag("output", genEnvCmd.Flags().Lookup("output"))
-	_ = viper.BindEnv("template", "ENVSECRETS_TEMPLATE")
-	_ = viper.BindEnv("output", "ENVSECRETS_OUTPUT")
-	viper.SetDefault("template", ".env.tpl")
-	viper.SetDefault("output", ".env")
 }

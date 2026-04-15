@@ -8,7 +8,6 @@ import (
 
 	"github.com/javorszky/envsecrets/internal/secrets"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var (
@@ -45,7 +44,7 @@ Examples:
 			}
 		}
 
-		mgr := secrets.New(viper.GetString("vault"))
+		mgr := secrets.New(cfg.Vault)
 
 		if err := mgr.Delete(key); err != nil {
 			return fmt.Errorf("delete failed: %w", err)
