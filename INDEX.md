@@ -16,6 +16,7 @@ Codebase table of contents for quick navigation. Consult this before scanning th
 | `.golangci.yml` | golangci-lint v2 config. Standard linters + `gofmt`. |
 | `Makefile` | Local dev commands: `build`, `lint`, `test`, `vet`, `fmt`, `govulncheck`, `check` (runs all). |
 | `renovate.json` | Renovate config. Groups Go minor/patch deps and GitHub Actions updates. |
+| `lefthook.yml` | Lefthook pre-commit hooks: format check (`gofmt -l`), lint (`golangci-lint`), test (`go test -race`). |
 
 ## `.github/workflows/` - CI
 

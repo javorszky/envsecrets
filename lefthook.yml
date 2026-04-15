@@ -1,0 +1,11 @@
+pre-commit:
+  parallel: true
+  commands:
+    fmt-check:
+      run: test -z "$(gofmt -l {staged_files})"
+      glob: "*.go"
+      fail_text: "gofmt: unformatted files detected, run 'gofmt -w .' to fix"
+    lint:
+      run: golangci-lint run ./...
+    test:
+      run: go test -race -count=1 ./...
