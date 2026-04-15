@@ -17,3 +17,6 @@ envsecrets
 
 # Test coverage
 coverage.out
+
+# AI
+.claude
