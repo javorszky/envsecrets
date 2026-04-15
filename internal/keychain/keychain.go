@@ -37,9 +37,8 @@ func Get(service string) (string, error) {
 		"-w",
 	).Output()
 	if err != nil {
-		var exitErr *exec.ExitError
 
-		if errors.As(err, &exitErr) {
+		if _, ok := errors.AsType[*exec.ExitError](err); ok {
 			// exit code 44 = "The specified item could not be found in the keychain."
 			return "", ErrNotFound
 		}
@@ -86,9 +85,8 @@ func delete(service string) error {
 	)
 
 	if out, err := cmd.CombinedOutput(); err != nil {
-		var exitErr *exec.ExitError
 
-		if errors.As(err, &exitErr) {
+		if _, ok := errors.AsType[*exec.ExitError](err); ok {
 			return ErrNotFound
 		}
 
