@@ -21,12 +21,12 @@ var genEnvCmd = &cobra.Command{
 	Long: `gen-env reads a template file where values are secret key references
 (prefixed with "secret:") and writes a resolved .env file with real values.
 
-Template format (.env.docker.tpl — safe to commit):
+Template format (.env.tpl — safe to commit):
 
-  APP_KEY=secret:myapp_APP_KEY
-  DB_PASSWORD=secret:myapp_DB_PASSWORD
-  APP_DEBUG=false
-  APP_ENV=local
+  DATABASE_URL=secret:myproject_DATABASE_URL
+  API_KEY=secret:myproject_API_KEY
+  APP_ENV=production
+  LOG_LEVEL=info
 
 Lines without the "secret:" prefix are copied verbatim. Blank lines and
 comments (#) are preserved.
@@ -35,8 +35,8 @@ The output file should be gitignored.
 
 Examples:
   envsecrets gen-env
-  envsecrets gen-env --template .env.docker.tpl --output .env.docker
-  envsecrets gen-env --vault Work --template .env.staging.tpl --output .env.staging`,
+  envsecrets gen-env --template .env.tpl --output .env
+  envsecrets gen-env --vault Work --template staging.env.tpl --output staging.env`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		mgr := secrets.New(vaultFlag)
@@ -112,6 +112,6 @@ Examples:
 func init() {
 	rootCmd.AddCommand(genEnvCmd)
 
-	genEnvCmd.Flags().StringVar(&templateFlag, "template", ".env.docker.tpl", "Path to the template file")
-	genEnvCmd.Flags().StringVar(&outputFlag, "output", ".env.docker", "Path to write the resolved env file")
+	genEnvCmd.Flags().StringVar(&templateFlag, "template", ".env.tpl", "Path to the template file")
+	genEnvCmd.Flags().StringVar(&outputFlag, "output", ".env", "Path to write the resolved env file")
 }

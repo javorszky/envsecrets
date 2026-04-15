@@ -1,161 +1,165 @@
 # envsecrets
 
-A local CLI for managing env secrets across **macOS Keychain** (primary, always local) and **1Password** (durable sync layer).
+A lightweight macOS CLI for storing and retrieving secrets as environment variables. Think of it as a poor-man's Vault — secrets live in your **macOS Keychain** for fast offline access, with **1Password** as an optional durable backup and cross-machine sync layer.
 
-## Read path
-
-```
-Keychain (fast, offline) → miss? → 1Password → cache back into Keychain
-```
-
-## Write path
+## How it works
 
 ```
-Keychain (always) + 1Password (if available; failure is a warning, not an error)
+Write:  Keychain (required) → 1Password (best-effort, if available)
+Read:   Keychain (fast path) → 1Password (fallback, then cached to Keychain)
+Sync:   1Password → Keychain (run once on a new machine)
 ```
 
-This means:
-- You can work completely offline as long as Keychain is populated.
-- 1Password going down (app, service, or network) never blocks you.
-- On a new machine, `sync` bootstraps your Keychain from 1Password once.
+Keychain is always available. 1Password is optional — the tool works fully offline without it, and only uses it when the desktop app is running and signed in.
 
----
+## Requirements
+
+- macOS
+- Go 1.21+ (to install from source)
+- [1Password CLI (`op`)](https://developer.1password.com/docs/cli/) — optional, needed for sync and cross-machine sharing
 
 ## Install
 
-```bash
+```sh
 go install github.com/javorszky/envsecrets@latest
 ```
 
 Or build locally:
 
-```bash
+```sh
 go build -o envsecrets .
 mv envsecrets /usr/local/bin/
 ```
 
----
-
 ## Commands
 
-### `store <key> <value>`
+### `store` — save a secret
 
-Store a new secret in both backends.
-
-```bash
-envsecrets store STRIPE_SECRET sk_live_abc123
-envsecrets store --vault Work DB_PASSWORD hunter2
+```sh
+envsecrets store DATABASE_URL "postgres://user:pass@localhost/mydb"
+envsecrets store --vault Work SLACK_TOKEN "xoxb-..."
 ```
 
-### `fetch <key>`
+Writes to Keychain and, if 1Password is available, also to your vault. If 1Password is unreachable, the secret is still saved locally and a warning is printed.
 
-Fetch a secret. Prints the raw value to stdout (no trailing newline).
+### `fetch` — read a secret
 
-```bash
-envsecrets fetch STRIPE_SECRET
-
-# Shell substitution friendly:
-export DB_PASSWORD=$(envsecrets fetch DB_PASSWORD)
+```sh
+envsecrets fetch DATABASE_URL
+export DATABASE_URL=$(envsecrets fetch DATABASE_URL)
 ```
 
-### `update <key> <value>`
+Reads from Keychain first. On a miss, falls back to 1Password and caches the result in Keychain for future offline use. Prints the raw value with no trailing newline — safe for shell substitution.
 
-Update an existing secret. Semantically equivalent to `store` (both upsert), but signals intent.
+### `update` — update an existing secret
 
-```bash
-envsecrets update STRIPE_SECRET sk_live_newvalue
+```sh
+envsecrets update API_KEY "new-value"
 ```
 
-### `delete <key>`
+Semantically equivalent to `store`. Both upsert — `update` signals intent that the key already exists.
 
-Delete a secret from both backends. Prompts for confirmation.
+### `delete` — remove a secret
 
-```bash
-envsecrets delete OLD_KEY
-envsecrets delete --force OLD_KEY   # skip confirmation
+```sh
+envsecrets delete DATABASE_URL
+envsecrets delete --force OLD_API_KEY
 ```
 
-### `sync`
+Removes from both Keychain and 1Password. Prompts for confirmation unless `--force` / `-f` is passed.
 
-Pull every item from the 1Password vault into Keychain. Run once on a new machine.
+### `sync` — pull all secrets from 1Password to Keychain
 
-```bash
+```sh
 envsecrets sync
 envsecrets sync --vault Work
 ```
 
-Requires the 1Password desktop app to be running and unlocked. After this, all `fetch` calls work offline.
+Fetches every item from the configured 1Password vault and writes it into the local Keychain. Run this once on a new machine to bootstrap your local secrets from 1Password.
 
-### `gen-env`
+Requires the 1Password desktop app to be running and unlocked.
 
-Resolve a committed template into a gitignored `.env` file.
+### `gen-env` — resolve a template into a `.env` file
 
-```bash
+```sh
 envsecrets gen-env
-envsecrets gen-env --template .env.docker.tpl --output .env.docker
+envsecrets gen-env --template .env.tpl --output .env
 ```
 
----
+Reads a template file and resolves `secret:` references into real values, writing a ready-to-use `.env` file. Useful for projects that load config from a `.env` file at startup.
 
-## Template format (`.env.docker.tpl`)
+## Template format
 
-Commit this file. Values prefixed with `secret:` are resolved from Keychain/1Password at generation time. Everything else is copied verbatim.
+Create a `.env.tpl` file — safe to commit, contains no real secrets:
 
-```dotenv
-# Application
-APP_KEY=secret:myapp_APP_KEY
-APP_ENV=local
-APP_DEBUG=false
+```sh
+# .env.tpl
 
-# Database
-DB_CONNECTION=mysql
-DB_HOST=mysql
-DB_PORT=3306
-DB_DATABASE=myapp
-DB_PASSWORD=secret:myapp_DB_PASSWORD
+# Plain values are copied verbatim
+APP_ENV=production
+LOG_LEVEL=info
 
-# Stripe
-STRIPE_SECRET=secret:myapp_STRIPE_SECRET
+# Lines with secret: are resolved from your secrets store
+DATABASE_URL=secret:myproject_DATABASE_URL
+API_KEY=secret:myproject_API_KEY
+WEBHOOK_SECRET=secret:myproject_WEBHOOK_SECRET
 ```
 
-Add the output file to `.gitignore`:
+Add `.env` to your `.gitignore` and keep `.env.tpl` tracked:
 
-```
-.env.docker
-.env.staging
-```
-
-Run before `docker compose up`:
-
-```bash
-envsecrets gen-env && docker compose up
+```gitignore
+.env
+.env.*
+!.env.tpl
 ```
 
----
+Run `envsecrets gen-env` to produce `.env` with real values injected. Lines without `secret:` are copied verbatim; blank lines and comments are preserved.
 
 ## Vault configuration
 
-The 1Password vault defaults to `"Private"`. Override with:
+By default, envsecrets uses the `Private` 1Password vault. Override it two ways:
 
-- `--vault <name>` flag on any command
-- `ENVSECRETS_VAULT=Work` environment variable
+```sh
+# Environment variable (set once in your shell profile)
+export ENVSECRETS_VAULT=MyVault
 
----
+# Per-command flag
+envsecrets store --vault MyVault MY_SECRET "value"
+```
 
-## New machine bootstrap
+## New machine setup
 
-```bash
-# 1. Install the tool
+When you move to a new Mac and already have secrets in 1Password:
+
+```sh
+# 1. Install envsecrets
 go install github.com/javorszky/envsecrets@latest
 
-# 2. Make sure 1Password desktop app is open and unlocked
+# 2. Sign in to 1Password and unlock the desktop app
 
-# 3. Pull everything into local Keychain
+# 3. Pull all secrets into the local Keychain
 envsecrets sync
 
-# 4. Generate your env file
-envsecrets gen-env
-
-# 5. Done — 1Password can go offline now
-docker compose up
+# 4. All secrets are now available locally, offline
+envsecrets fetch DATABASE_URL
 ```
+
+## Key naming convention
+
+Keys are stored as-is. It's useful to namespace them to avoid collisions between projects:
+
+```sh
+# Store with a project prefix
+envsecrets store myproject_DATABASE_URL "postgres://..."
+envsecrets store myproject_API_KEY "sk-..."
+
+# Reference the prefixed names in your .env.tpl
+DATABASE_URL=secret:myproject_DATABASE_URL
+API_KEY=secret:myproject_API_KEY
+```
+
+This way, secrets from different projects coexist in the same Keychain and 1Password vault without collision.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
