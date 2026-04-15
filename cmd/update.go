@@ -28,7 +28,7 @@ Examples:
 			return fmt.Errorf("update failed: %w", err)
 		}
 
-		fmt.Fprintf(os.Stdout, "✓ updated %q\n", key)
+		_, _ = fmt.Fprintf(os.Stdout, "✓ updated %q\n", key)
 
 		return nil
 	},

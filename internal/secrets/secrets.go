@@ -2,11 +2,13 @@
 // across the macOS Keychain and 1Password.
 //
 // Write path:  both backends are written; 1Password failure is non-fatal and
-//              only emits a warning so that offline / no-op workflows still work.
+//
+//	only emits a warning so that offline / no-op workflows still work.
 //
 // Read path:   Keychain is tried first (fast, local, always available).
-//              Falls back to 1Password if the Keychain entry is absent, and
-//              writes the result back into Keychain so subsequent reads are fast.
+//
+//	Falls back to 1Password if the Keychain entry is absent, and
+//	writes the result back into Keychain so subsequent reads are fast.
 //
 // Delete path: both backends are attempted; neither failing blocks the other.
 package secrets
@@ -23,8 +25,8 @@ import (
 
 // Manager orchestrates secrets across Keychain and 1Password.
 type Manager struct {
-	op      *onepassword.Client
-	warn    io.Writer // destination for non-fatal warnings (defaults to stderr)
+	op   *onepassword.Client
+	warn io.Writer // destination for non-fatal warnings (defaults to stderr)
 }
 
 // New returns a Manager. vault is the 1Password vault name (e.g. "Private").
@@ -72,7 +74,7 @@ func (m *Manager) Get(key string) (string, error) {
 
 	// Warm the Keychain so next time we don't need 1Password.
 	if kcErr := keychain.Set(key, val); kcErr != nil {
-		fmt.Fprintf(m.warn, "warning: could not cache %q in keychain: %v\n", key, kcErr)
+		_, _ = fmt.Fprintf(m.warn, "warning: could not cache %q in keychain: %v\n", key, kcErr)
 	}
 
 	return val, nil
@@ -87,12 +89,12 @@ func (m *Manager) Set(key, value string) error {
 	}
 
 	if !onepassword.Available() {
-		fmt.Fprintf(m.warn, "warning: 1Password unavailable; %q stored in keychain only\n", key)
+		_, _ = fmt.Fprintf(m.warn, "warning: 1Password unavailable; %q stored in keychain only\n", key)
 		return nil
 	}
 
 	if err := m.op.Set(key, value); err != nil {
-		fmt.Fprintf(m.warn, "warning: 1Password write failed for %q: %v\n", key, err)
+		_, _ = fmt.Fprintf(m.warn, "warning: 1Password write failed for %q: %v\n", key, err)
 	}
 
 	return nil
@@ -117,7 +119,7 @@ func (m *Manager) Delete(key string) error {
 			errs = append(errs, fmt.Errorf("1password delete: %w", err))
 		}
 	} else {
-		fmt.Fprintf(m.warn, "warning: 1Password unavailable; %q removed from keychain only\n", key)
+		_, _ = fmt.Fprintf(m.warn, "warning: 1Password unavailable; %q removed from keychain only\n", key)
 	}
 
 	return errors.Join(errs...)
@@ -138,12 +140,12 @@ func (m *Manager) Sync() (synced int, err error) {
 	for _, key := range keys {
 		val, getErr := m.op.Get(key)
 		if getErr != nil {
-			fmt.Fprintf(m.warn, "warning: skipping %q: %v\n", key, getErr)
+			_, _ = fmt.Fprintf(m.warn, "warning: skipping %q: %v\n", key, getErr)
 			continue
 		}
 
 		if setErr := keychain.Set(key, val); setErr != nil {
-			fmt.Fprintf(m.warn, "warning: could not write %q to keychain: %v\n", key, setErr)
+			_, _ = fmt.Fprintf(m.warn, "warning: could not write %q to keychain: %v\n", key, setErr)
 			continue
 		}
 

@@ -32,14 +32,14 @@ Examples:
 		key := args[0]
 
 		if !forceFlag {
-			fmt.Fprintf(os.Stdout, "Delete %q from Keychain and 1Password? [y/N] ", key)
+			_, _ = fmt.Fprintf(os.Stdout, "Delete %q from Keychain and 1Password? [y/N] ", key)
 
 			scanner := bufio.NewScanner(os.Stdin)
 			scanner.Scan()
 
 			answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
 			if answer != "y" && answer != "yes" {
-				fmt.Fprintln(os.Stdout, "aborted")
+				_, _ = fmt.Fprintln(os.Stdout, "aborted")
 				return nil
 			}
 		}
@@ -50,7 +50,7 @@ Examples:
 			return fmt.Errorf("delete failed: %w", err)
 		}
 
-		fmt.Fprintf(os.Stdout, "✓ deleted %q\n", key)
+		_, _ = fmt.Fprintf(os.Stdout, "✓ deleted %q\n", key)
 
 		return nil
 	},
