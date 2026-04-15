@@ -6,6 +6,7 @@ import (
 
 	"github.com/javorszky/envsecrets/internal/secrets"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var fetchCmd = &cobra.Command{
@@ -27,7 +28,7 @@ Examples:
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		key := args[0]
-		mgr := secrets.New(vaultFlag)
+		mgr := secrets.New(viper.GetString("vault"))
 
 		val, err := mgr.Get(key)
 		if err != nil {
