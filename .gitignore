@@ -13,7 +13,7 @@ envsecrets
 # Environment files (may contain secrets)
 .env
 .env.*
-!.env.docker.tpl
+!.env.tpl
 
 # Test coverage
 coverage.out
