@@ -19,3 +19,10 @@ When creating implementation plans, write them so that Haiku 4.5 can execute the
 - **Reference INDEX.md entries.** Point to the specific INDEX.md entry for any file being touched so the executing model can read it for context.
 - **Include verification commands.** End the plan with the exact shell commands to run (e.g., `go build ./...`, `go vet ./...`, test commands) so the model knows how to confirm the work is correct.
 - **No ambiguity.** Avoid phrases like "update as needed", "add appropriate error handling", or "follow existing patterns". Instead, show the exact error handling code, the exact pattern to follow.
+
+## Branch Workflow
+
+After a feature branch has been merged into main, ALWAYS:
+
+1. Fetch and reset to main: `git fetch origin main && git reset --hard origin/main`
+2. Create a new working branch before making any changes: `git checkout -b <descriptive-branch-name>`
