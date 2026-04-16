@@ -24,17 +24,9 @@ import (
 	"github.com/javorszky/envsecrets/internal/onepassword"
 )
 
-// Keychain is the interface for the local, always-available secret store.
-// keychain.Client satisfies this interface.
-type Keychain interface {
-	Get(ctx context.Context, key string) (string, error)
-	Set(ctx context.Context, key, value string) error
-	Delete(ctx context.Context, key string) error
-}
-
-// OnePassword is the interface for the remote, durable secret store.
-// *onepassword.Client satisfies this interface.
-type OnePassword interface {
+// SecretStore is the interface that both backends (keychain and 1Password)
+// implement. It provides a uniform API for secret storage and retrieval.
+type SecretStore interface {
 	Available(ctx context.Context) bool
 	Get(ctx context.Context, key string) (string, error)
 	Set(ctx context.Context, key, value string) error
@@ -44,24 +36,24 @@ type OnePassword interface {
 
 // Manager orchestrates secrets across Keychain and 1Password.
 type Manager struct {
-	kc   Keychain
-	op   OnePassword
+	kc   SecretStore
+	op   SecretStore
 	warn io.Writer // destination for non-fatal warnings (defaults to stderr)
 }
 
 // New returns a Manager backed by macOS Keychain and the given 1Password vault.
 func New(vault string) *Manager {
 	return &Manager{
-		kc:   keychain.Client{},
+		kc:   keychain.New(vault),
 		op:   onepassword.New(vault),
 		warn: os.Stderr,
 	}
 }
 
 // NewWithBackends returns a Manager using the provided backend implementations.
-// Intended for tests: pass mock or stub implementations of Keychain and
-// OnePassword to exercise the Manager's logic in isolation.
-func NewWithBackends(kc Keychain, op OnePassword) *Manager {
+// Intended for tests: pass mock or stub implementations of SecretStore
+// to exercise the Manager's logic in isolation.
+func NewWithBackends(kc, op SecretStore) *Manager {
 	return &Manager{
 		kc:   kc,
 		op:   op,

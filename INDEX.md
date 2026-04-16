@@ -51,14 +51,17 @@ All commands share a package-level `cfg *config.Config` populated by `initConfig
 
 | File | Key Exports | Description |
 |------|-------------|-------------|
-| `secrets.go` | `Keychain` interface, `OnePassword` interface, `Manager` struct, `New(vault)`, `NewWithBackends(kc, op)`, `Get(ctx, key)`, `Set(ctx, key, value)`, `Update(ctx, key, value)`, `Delete(ctx, key)`, `Sync(ctx)`, `WithWarningWriter(w)` | Coordinates Keychain and 1Password through interfaces. All `Manager` methods accept a `context.Context` that is threaded down into every backend call. `New` wires up `keychain.Client` and `*onepassword.Client`. `NewWithBackends` accepts any implementations — used by tests. Read path: Keychain first, fallback to 1Password (caches result). Write path: Keychain must succeed, 1Password is best-effort. Delete: attempts both, combines errors via `errors.Join()`. |
-| `secrets_test.go` | — | `package secrets_test`. Table-driven tests for all `Manager` methods using in-memory `stubKC` and `stubOP` implementations. Covers every branch: cache hits/misses, backend unavailability, partial failures, and warning emission. |
+| `secrets.go` | `SecretStore` interface, `Manager` struct, `New(vault)`, `NewWithBackends(kc, op SecretStore)`, `Get(ctx, key)`, `Set(ctx, key, value)`, `Update(ctx, key, value)`, `Delete(ctx, key)`, `Sync(ctx)`, `WithWarningWriter(w)` | Coordinates two `SecretStore` backends (keychain and 1Password) through a single unified interface. All `Manager` methods accept a `context.Context` that is threaded down into every backend call. `New` wires up `keychain.New(vault)` and `onepassword.New(vault)`. `NewWithBackends` accepts any `SecretStore` implementations — used by tests. Read path: Keychain first, fallback to 1Password (caches result). Write path: Keychain must succeed, 1Password is best-effort. Delete: attempts both, combines errors via `errors.Join()`. |
+| `secrets_test.go` | — | `package secrets_test`. Table-driven tests for all `Manager` methods using a unified in-memory `stubStore` implementing `SecretStore`. Each stub gets a `notFoundErr` sentinel (`keychain.ErrNotFound` or `onepassword.ErrNotFound`). Covers every branch: cache hits/misses, backend unavailability, partial failures, and warning emission. |
 
 ## `internal/keychain/` - macOS Keychain Backend
 
+Uses a **dedicated keychain file per vault** at `~/.local/share/envsecrets/<vault>.keychain` instead of the login keychain. The file's password is auto-generated on first use and stored in the login keychain under service `envsecrets-keychain-<vault>`.
+
 | File | Key Exports | Description |
 |------|-------------|-------------|
-| `keychain.go` | `Client` struct, `ErrNotFound` | Wraps macOS `security` CLI. `Client` is the sole public API; its `Get(ctx, service)`, `Set(ctx, service, value)`, `Delete(ctx, service)` methods use `exec.CommandContext` and contain the implementation directly (no exported package-level functions). `Set` does delete-then-add via the private `remove` helper. Satisfies `secrets.Keychain`. |
+| `keychain.go` | `Client` struct (`vault`, `keychainPath` fields), `New(vault)`, `(*Client).Available(ctx)`, `(*Client).Get(ctx, service)`, `(*Client).Set(ctx, service, value)`, `(*Client).Delete(ctx, service)`, `(*Client).List(ctx)`, `ParseDumpServices(output)`, `ErrNotFound` | Wraps macOS `security` CLI with a dedicated keychain file. `New(vault)` returns a `*Client`. All methods call `ensure(ctx)` first to create or unlock the keychain file. `Available` checks for the `security` binary. `List` parses `security dump-keychain` output via `ParseDumpServices`. `Set` does delete-then-add via the private `remove` helper. Satisfies `secrets.SecretStore`. |
+| `keychain_test.go` | — | `package keychain_test`. Table-driven tests for `ParseDumpServices`: empty input, single item, multiple items, duplicates, special characters, non-matching lines. |
 
 ## `internal/onepassword/` - 1Password Backend
 

@@ -14,116 +14,80 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Stub backends
+// Stub backend
 // ---------------------------------------------------------------------------
 
-// stubKC is an in-memory Keychain stub.
-// getErr / setErr / deleteErr, when non-nil, are returned for every call of
-// that operation (use nil fields for success paths).
-// To simulate a "key not found" on Get, simply omit the key from data.
-type stubKC struct {
-	data      map[string]string
-	getErr    error
-	setErr    error
-	deleteErr error
+// stubStore is an in-memory SecretStore stub used by both the "kc" and "op"
+// sides. The notFoundErr field controls which sentinel error is returned when
+// a key is absent (keychain.ErrNotFound or onepassword.ErrNotFound).
+type stubStore struct {
+	avail       bool
+	data        map[string]string
+	notFoundErr error // sentinel for missing keys
+	getErr      error
+	setErr      error
+	deleteErr   error
+	listErr     error
 }
 
-func newStubKC(initial map[string]string) *stubKC {
+func newStubStore(avail bool, notFoundErr error, initial map[string]string) *stubStore {
 	data := make(map[string]string)
 	for k, v := range initial {
 		data[k] = v
 	}
-	return &stubKC{data: data}
+
+	return &stubStore{avail: avail, notFoundErr: notFoundErr, data: data}
 }
 
-func (s *stubKC) Get(_ context.Context, key string) (string, error) {
+func (s *stubStore) Available(_ context.Context) bool { return s.avail }
+
+func (s *stubStore) Get(_ context.Context, key string) (string, error) {
 	if s.getErr != nil {
 		return "", s.getErr
 	}
+
 	v, ok := s.data[key]
 	if !ok {
-		return "", keychain.ErrNotFound
+		return "", s.notFoundErr
 	}
+
 	return v, nil
 }
 
-func (s *stubKC) Set(_ context.Context, key, value string) error {
+func (s *stubStore) Set(_ context.Context, key, value string) error {
 	if s.setErr != nil {
 		return s.setErr
 	}
+
 	s.data[key] = value
+
 	return nil
 }
 
-func (s *stubKC) Delete(_ context.Context, key string) error {
+func (s *stubStore) Delete(_ context.Context, key string) error {
 	if s.deleteErr != nil {
 		return s.deleteErr
 	}
+
 	if _, ok := s.data[key]; !ok {
-		return keychain.ErrNotFound
+		return s.notFoundErr
 	}
+
 	delete(s.data, key)
+
 	return nil
 }
 
-// stubOP is an in-memory 1Password stub.
-type stubOP struct {
-	avail     bool
-	data      map[string]string
-	getErr    error
-	setErr    error
-	deleteErr error
-	listErr   error
-}
-
-func newStubOP(avail bool, initial map[string]string) *stubOP {
-	data := make(map[string]string)
-	for k, v := range initial {
-		data[k] = v
-	}
-	return &stubOP{avail: avail, data: data}
-}
-
-func (s *stubOP) Available(_ context.Context) bool { return s.avail }
-
-func (s *stubOP) Get(_ context.Context, key string) (string, error) {
-	if s.getErr != nil {
-		return "", s.getErr
-	}
-	v, ok := s.data[key]
-	if !ok {
-		return "", onepassword.ErrNotFound
-	}
-	return v, nil
-}
-
-func (s *stubOP) Set(_ context.Context, key, value string) error {
-	if s.setErr != nil {
-		return s.setErr
-	}
-	s.data[key] = value
-	return nil
-}
-
-func (s *stubOP) Delete(_ context.Context, key string) error {
-	if s.deleteErr != nil {
-		return s.deleteErr
-	}
-	if _, ok := s.data[key]; !ok {
-		return onepassword.ErrNotFound
-	}
-	delete(s.data, key)
-	return nil
-}
-
-func (s *stubOP) List(_ context.Context) ([]string, error) {
+func (s *stubStore) List(_ context.Context) ([]string, error) {
 	if s.listErr != nil {
 		return nil, s.listErr
 	}
+
 	keys := make([]string, 0, len(s.data))
 	for k := range s.data {
 		keys = append(keys, k)
 	}
+
 	return keys, nil
 }
 
@@ -132,7 +96,7 @@ func (s *stubOP) List(_ context.Context) ([]string, error) {
 // ---------------------------------------------------------------------------
 
 // newMgr wires up a Manager with stub backends and a warning capture buffer.
-func newMgr(kc *stubKC, op *stubOP) (*secrets.Manager, *strings.Builder) {
+func newMgr(kc, op *stubStore) (*secrets.Manager, *strings.Builder) {
 	warn := &strings.Builder{}
 	return secrets.NewWithBackends(kc, op).WithWarningWriter(warn), warn
 }
@@ -227,11 +191,11 @@ func TestManager_Get(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			kc := newStubKC(tc.kcData)
+			kc := newStubStore(true, keychain.ErrNotFound, tc.kcData)
 			kc.getErr = tc.kcGetErr
 			kc.setErr = tc.kcSetErr
 
-			op := newStubOP(tc.opAvail, tc.opData)
+			op := newStubStore(tc.opAvail, onepassword.ErrNotFound, tc.opData)
 			op.getErr = tc.opGetErr
 
 			mgr, warnBuf := newMgr(kc, op)
@@ -320,10 +284,10 @@ func TestManager_Set(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			kc := newStubKC(nil)
+			kc := newStubStore(true, keychain.ErrNotFound, nil)
 			kc.setErr = tc.kcSetErr
 
-			op := newStubOP(tc.opAvail, nil)
+			op := newStubStore(tc.opAvail, onepassword.ErrNotFound, nil)
 			op.setErr = tc.opSetErr
 
 			mgr, warnBuf := newMgr(kc, op)
@@ -362,8 +326,8 @@ func TestManager_Update(t *testing.T) {
 	t.Parallel()
 
 	// Update is a semantic alias for Set — one case verifies the delegation.
-	kc := newStubKC(map[string]string{"KEY": "old"})
-	op := newStubOP(true, map[string]string{"KEY": "old"})
+	kc := newStubStore(true, keychain.ErrNotFound, map[string]string{"KEY": "old"})
+	op := newStubStore(true, onepassword.ErrNotFound, map[string]string{"KEY": "old"})
 	mgr, _ := newMgr(kc, op)
 
 	require.NoError(t, mgr.Update(context.Background(), "KEY", "new"))
@@ -469,10 +433,10 @@ func TestManager_Delete(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			kc := newStubKC(tc.kcData)
+			kc := newStubStore(true, keychain.ErrNotFound, tc.kcData)
 			kc.deleteErr = tc.kcDeleteErr
 
-			op := newStubOP(tc.opAvail, tc.opData)
+			op := newStubStore(tc.opAvail, onepassword.ErrNotFound, tc.opData)
 			op.deleteErr = tc.opDeleteErr
 
 			mgr, warnBuf := newMgr(kc, op)
@@ -571,10 +535,10 @@ func TestManager_Sync(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			kc := newStubKC(nil)
+			kc := newStubStore(true, keychain.ErrNotFound, nil)
 			kc.setErr = tc.kcSetErr
 
-			op := newStubOP(tc.opAvail, tc.opData)
+			op := newStubStore(tc.opAvail, onepassword.ErrNotFound, tc.opData)
 			op.listErr = tc.opListErr
 			op.getErr = tc.opGetErr
 
