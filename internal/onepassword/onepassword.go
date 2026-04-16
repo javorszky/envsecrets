@@ -33,16 +33,21 @@ func New(vault string) *Client {
 
 // Available reports whether the `op` binary is present and the local app is
 // reachable. It does NOT verify that the vault is accessible.
+// It is a package-level convenience wrapper around (*Client).Available.
 func Available() bool {
+	return new(Client).Available()
+}
+
+// Available reports whether the op CLI is present and the local 1Password app
+// is running and signed in. It does NOT verify vault accessibility.
+func (c *Client) Available() bool {
 	_, err := exec.LookPath("op")
 	if err != nil {
 		return false
 	}
 
 	// `op account list` exits 0 when the app is running and signed in.
-	err = exec.Command("op", "account", "list").Run()
-
-	return err == nil
+	return exec.Command("op", "account", "list").Run() == nil
 }
 
 // Get retrieves the password field of the item whose title matches key.

@@ -17,6 +17,22 @@ import (
 // ErrNotFound is returned when a keychain entry does not exist.
 var ErrNotFound = errors.New("keychain: entry not found")
 
+// Client is a handle for macOS Keychain operations.
+// The zero value is ready to use; it satisfies the Keychain interface expected
+// by internal/secrets.Manager.
+type Client struct{}
+
+// Get retrieves the secret for the given service key.
+// Returns ErrNotFound if the entry does not exist.
+func (Client) Get(service string) (string, error) { return Get(service) }
+
+// Set stores or overwrites a secret.
+func (Client) Set(service, value string) error { return Set(service, value) }
+
+// Delete removes the keychain entry for the given service key.
+// Returns ErrNotFound if the entry does not exist.
+func (Client) Delete(service string) error { return Delete(service) }
+
 func user() string {
 	u := os.Getenv("USER")
 	if u == "" {
