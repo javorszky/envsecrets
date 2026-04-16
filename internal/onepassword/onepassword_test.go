@@ -8,6 +8,61 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestParseVaultNames(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{
+			name:  "empty array",
+			input: `[]`,
+			want:  nil,
+		},
+		{
+			name:  "single vault",
+			input: `[{"id":"abc123","name":"Private","type":"U","content_version":196}]`,
+			want:  []string{"Private"},
+		},
+		{
+			name: "multiple vaults",
+			input: `[` +
+				`{"id":"aaa","name":"Private","type":"U"},` +
+				`{"id":"bbb","name":"Work","type":"U"},` +
+				`{"id":"ccc","name":"envsecrets","type":"U"}` +
+				`]`,
+			want: []string{"Private", "Work", "envsecrets"},
+		},
+		{
+			name:  "vault name with spaces and mixed case",
+			input: `[{"id":"abc","name":"My Secrets","type":"U"}]`,
+			want:  []string{"My Secrets"},
+		},
+		{
+			name:  "empty string input",
+			input: ``,
+			want:  nil,
+		},
+		{
+			name:  "no name fields present",
+			input: `[{"id":"abc","title":"something"}]`,
+			want:  nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := onepassword.ParseVaultNames(tc.input)
+
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestParseTitles(t *testing.T) {
 	t.Parallel()
 

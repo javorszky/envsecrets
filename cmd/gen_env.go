@@ -40,7 +40,7 @@ Examples:
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
-		mgr := secrets.New(cfg.Vault)
+		mgr := secrets.New(cfg.Vault, cfg.OpVault)
 
 		templatePath := cfg.Template
 		tpl, err := os.Open(templatePath)

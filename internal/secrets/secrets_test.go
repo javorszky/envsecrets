@@ -20,14 +20,19 @@ import (
 // stubStore is an in-memory SecretStore stub used by both the "kc" and "op"
 // sides. The notFoundErr field controls which sentinel error is returned when
 // a key is absent (keychain.ErrNotFound or onepassword.ErrNotFound).
+//
+// It also optionally implements VaultEnsurer via EnsureVault. When
+// vaultCreated is true, EnsureVault reports that the vault was just created.
 type stubStore struct {
-	avail       bool
-	data        map[string]string
-	notFoundErr error // sentinel for missing keys
-	getErr      error
-	setErr      error
-	deleteErr   error
-	listErr     error
+	avail          bool
+	data           map[string]string
+	notFoundErr    error // sentinel for missing keys
+	getErr         error
+	setErr         error
+	deleteErr      error
+	listErr        error
+	vaultCreated   bool  // EnsureVault reports "created" when true
+	vaultEnsureErr error // EnsureVault returns this error when non-nil
 }
 
 func newStubStore(avail bool, notFoundErr error, initial map[string]string) *stubStore {
@@ -89,6 +94,16 @@ func (s *stubStore) List(_ context.Context) ([]string, error) {
 	}
 
 	return keys, nil
+}
+
+// EnsureVault implements secrets.VaultEnsurer — present on stubStore so tests
+// can exercise the vault-creation path in Manager.Set.
+func (s *stubStore) EnsureVault(_ context.Context) (bool, error) {
+	if s.vaultEnsureErr != nil {
+		return false, s.vaultEnsureErr
+	}
+
+	return s.vaultCreated, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -232,17 +247,19 @@ func TestManager_Set(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		kcSetErr        error
-		opAvail         bool
-		opSetErr        error
-		key             string
-		value           string
-		wantErr         bool
-		wantErrContains string
-		wantWarning     string
-		wantKCAfter     map[string]string
-		wantOPAfter     map[string]string
+		name             string
+		kcSetErr         error
+		opAvail          bool
+		opSetErr         error
+		opVaultCreated   bool
+		opVaultEnsureErr error
+		key              string
+		value            string
+		wantErr          bool
+		wantErrContains  string
+		wantWarning      string
+		wantKCAfter      map[string]string
+		wantOPAfter      map[string]string
 	}{
 		{
 			name:        "both backends succeed",
@@ -278,6 +295,26 @@ func TestManager_Set(t *testing.T) {
 			wantErr:         true,
 			wantErrContains: "keychain write",
 		},
+		{
+			name:           "1password vault auto-created on first write — info message emitted",
+			opAvail:        true,
+			key:            "DB_PASS",
+			value:          "secret123",
+			opVaultCreated: true,
+			wantKCAfter:    map[string]string{"DB_PASS": "secret123"},
+			wantOPAfter:    map[string]string{"DB_PASS": "secret123"},
+			wantWarning:    "info: 1Password vault created",
+		},
+		{
+			name:             "vault ensure fails — warning emitted, write still attempted",
+			opAvail:          true,
+			key:              "DB_PASS",
+			value:            "secret123",
+			opVaultEnsureErr: errors.New("vault ensure failed"),
+			wantKCAfter:      map[string]string{"DB_PASS": "secret123"},
+			wantOPAfter:      map[string]string{"DB_PASS": "secret123"},
+			wantWarning:      "could not ensure 1Password vault",
+		},
 	}
 
 	for _, tc := range tests {
@@ -289,6 +326,8 @@ func TestManager_Set(t *testing.T) {
 
 			op := newStubStore(tc.opAvail, onepassword.ErrNotFound, nil)
 			op.setErr = tc.opSetErr
+			op.vaultCreated = tc.opVaultCreated
+			op.vaultEnsureErr = tc.opVaultEnsureErr
 
 			mgr, warnBuf := newMgr(kc, op)
 

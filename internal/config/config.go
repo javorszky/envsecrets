@@ -11,8 +11,13 @@ import (
 // The Sources field describes where each value came from.
 // Flag overrides are NOT applied here — the cmd layer must do that after Load returns.
 type Config struct {
-	// Vault is the 1Password vault name.
+	// Vault is the name used for the dedicated local keychain file.
+	// The file lives at ~/.local/share/envsecrets/<vault>.keychain.
 	Vault string
+	// OpVault is the 1Password vault name where secrets are stored.
+	// It is recommended to use a dedicated vault (not "Private") to keep
+	// envsecrets secrets organised and separate from personal items.
+	OpVault string
 	// Template is the path to the gen-env template file.
 	Template string
 	// Output is the path to the gen-env output file.
@@ -30,6 +35,7 @@ type Config struct {
 // Flag sources are set by the cmd layer after Load returns.
 type Sources struct {
 	Vault    string
+	OpVault  string
 	Template string
 	Output   string
 }
@@ -64,11 +70,13 @@ func Load(configFlagValue string) *Config {
 
 	// Environment variable bindings (second highest priority after flags).
 	_ = v.BindEnv("vault", "ENVSECRETS_VAULT")
+	_ = v.BindEnv("op_vault", "ENVSECRETS_OP_VAULT")
 	_ = v.BindEnv("template", "ENVSECRETS_TEMPLATE")
 	_ = v.BindEnv("output", "ENVSECRETS_OUTPUT")
 
 	// Built-in defaults (lowest priority).
-	v.SetDefault("vault", "Private")
+	v.SetDefault("vault", "envsecrets")
+	v.SetDefault("op_vault", "Private")
 	v.SetDefault("template", ".env.tpl")
 	v.SetDefault("output", ".env")
 
@@ -91,6 +99,7 @@ func Load(configFlagValue string) *Config {
 
 	cfg := &Config{
 		Vault:     v.GetString("vault"),
+		OpVault:   v.GetString("op_vault"),
 		Template:  v.GetString("template"),
 		Output:    v.GetString("output"),
 		FileFound: fileFound,
@@ -103,6 +112,7 @@ func Load(configFlagValue string) *Config {
 	}
 
 	cfg.Sources.Vault = sourceOf("vault", "ENVSECRETS_VAULT", fileKeys)
+	cfg.Sources.OpVault = sourceOf("op_vault", "ENVSECRETS_OP_VAULT", fileKeys)
 	cfg.Sources.Template = sourceOf("template", "ENVSECRETS_TEMPLATE", fileKeys)
 	cfg.Sources.Output = sourceOf("output", "ENVSECRETS_OUTPUT", fileKeys)
 

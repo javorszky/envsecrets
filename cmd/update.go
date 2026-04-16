@@ -23,7 +23,7 @@ Examples:
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		key, value := args[0], args[1]
-		mgr := secrets.New(cfg.Vault)
+		mgr := secrets.New(cfg.Vault, cfg.OpVault)
 
 		if err := mgr.Update(ctx, key, value); err != nil {
 			return fmt.Errorf("update failed: %w", err)

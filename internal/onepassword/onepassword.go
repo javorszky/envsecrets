@@ -93,6 +93,35 @@ func (c *Client) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
+// EnsureVault creates the configured vault in 1Password if it does not already
+// exist. Returns (true, nil) when the vault was newly created, (false, nil)
+// when it already existed, or (false, err) on failure.
+//
+// This satisfies the secrets.VaultEnsurer interface.
+func (c *Client) EnsureVault(ctx context.Context) (bool, error) {
+	cmd := exec.CommandContext(ctx, "op", "vault", "list", "--format", "json")
+
+	out, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("1password list vaults: %w", err)
+	}
+
+	for _, name := range ParseVaultNames(string(out)) {
+		if strings.EqualFold(name, c.Vault) {
+			return false, nil // vault already exists
+		}
+	}
+
+	// Vault not found — create it.
+	createCmd := exec.CommandContext(ctx, "op", "vault", "create", c.Vault)
+
+	if createOut, createErr := createCmd.CombinedOutput(); createErr != nil {
+		return false, fmt.Errorf("1password create vault %q: %w\n%s", c.Vault, createErr, createOut)
+	}
+
+	return true, nil
+}
+
 // List returns all item titles in the vault. Used by the sync command.
 func (c *Client) List(ctx context.Context) ([]string, error) {
 	cmd := exec.CommandContext(ctx,
@@ -171,6 +200,29 @@ func (c *Client) classifyErrorWithOutput(key string, err error, out []byte) erro
 	}
 
 	return fmt.Errorf("1password op on %q: %w", key, err)
+}
+
+// ParseVaultNames extracts vault names from the JSON array returned by
+// `op vault list --format json`.
+// The expected shape is: [{"id":"...","name":"MyVault",...}, ...]
+func ParseVaultNames(jsonStr string) []string {
+	var names []string
+
+	parts := strings.Split(jsonStr, `"name":"`)
+	for i, p := range parts {
+		if i == 0 {
+			continue // everything before the first match
+		}
+
+		end := strings.Index(p, `"`)
+		if end < 0 {
+			continue
+		}
+
+		names = append(names, p[:end])
+	}
+
+	return names
 }
 
 // ParseTitles extracts item titles from the JSON array returned by `op item list`.
