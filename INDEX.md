@@ -45,27 +45,27 @@ All commands share a package-level `cfg *config.Config` populated by `initConfig
 | File | Key Exports | Description |
 |------|-------------|-------------|
 | `config.go` | `Config` struct, `Sources` struct, `Load(configFlagValue string) *Config` | Single home for all viper logic. `Load` resolves config file path (`--config` flag → `$ENVSECRETS_CONFIG` → `~/.config/envsecrets.toml`), binds env vars, sets defaults, reads the TOML file, and returns a fully-populated `*Config`. Source attribution (`"default"` / `"config file"` / `"env ($VAR)"`) is set on `Config.Sources`; flag overrides (`"flag (--name)"`) are applied by the cmd layer after Load returns. Viper is imported **only** in this package. |
-| `config_test.go` | — | Table-driven tests for `Load()`: default values, config-file values, env-var overrides, env-beats-file precedence, `FileFound`/`FilePath` state, and `ENVSECRETS_CONFIG` env-var path resolution. Uses `t.Setenv` and `t.TempDir` to stay hermetic. |
+| `config_test.go` | — | `package config_test`. Table-driven tests for `Load()`: default values, config-file values, env-var overrides, env-beats-file precedence, `FileFound`/`FilePath` state, and `ENVSECRETS_CONFIG` env-var path resolution. Uses `t.Setenv` and `t.TempDir` to stay hermetic. |
 
 ## `internal/secrets/` - Orchestration Layer
 
 | File | Key Exports | Description |
 |------|-------------|-------------|
 | `secrets.go` | `Keychain` interface, `OnePassword` interface, `Manager` struct, `New(vault)`, `NewWithBackends(kc, op)`, `Get(key)`, `Set(key, value)`, `Update(key, value)`, `Delete(key)`, `Sync()`, `WithWarningWriter(w)` | Coordinates Keychain and 1Password through interfaces. `New` wires up `keychain.Client` and `*onepassword.Client`. `NewWithBackends` accepts any implementations — used by tests. Read path: Keychain first, fallback to 1Password (caches result back to Keychain). Write path: Keychain must succeed, 1Password is best-effort. Delete: attempts both, combines errors via `errors.Join()`. |
-| `secrets_test.go` | — | Table-driven tests for all `Manager` methods using in-memory `stubKC` and `stubOP` implementations. Covers every branch: cache hits/misses, backend unavailability, partial failures, and warning emission. |
+| `secrets_test.go` | — | `package secrets_test`. Table-driven tests for all `Manager` methods using in-memory `stubKC` and `stubOP` implementations. Covers every branch: cache hits/misses, backend unavailability, partial failures, and warning emission. |
 
 ## `internal/keychain/` - macOS Keychain Backend
 
 | File | Key Exports | Description |
 |------|-------------|-------------|
-| `keychain.go` | `Client` struct, `Get(service)`, `Set(service, value)`, `Delete(service)`, `ErrNotFound` | Wraps macOS `security` CLI. `Client` is a zero-value-ready struct whose methods satisfy the `secrets.Keychain` interface. Package-level functions are the real implementation; `Client` methods delegate to them. `Set` does delete-then-add to avoid duplicates. |
+| `keychain.go` | `Client` struct, `ErrNotFound` | Wraps macOS `security` CLI. `Client` is the sole public API; its `Get`, `Set`, `Delete` methods contain the implementation directly (no exported package-level functions). `Set` does delete-then-add via the private `remove` helper to avoid duplicates. Satisfies `secrets.Keychain`. |
 
 ## `internal/onepassword/` - 1Password Backend
 
 | File | Key Exports | Description |
 |------|-------------|-------------|
-| `onepassword.go` | `Client` struct, `New(vault)`, `(*Client).Available()`, `Available()` (package-level), `Get(key)`, `Set(key, value)`, `Delete(key)`, `List()`, `ErrNotFound`, `ErrUnavailable` | Wraps 1Password `op` CLI. `Available()` is now a method on `*Client` (satisfying `secrets.OnePassword`); the package-level function delegates to it. `Set` tries edit-first, falls back to create. `List` returns all item titles via JSON parsing. |
-| `onepassword_test.go` | — | Table-driven tests for the `parseTitles` helper: empty input, single item, multiple items, special characters, no title fields. |
+| `onepassword.go` | `Client` struct, `New(vault)`, `(*Client).Available()`, `(*Client).Get(key)`, `(*Client).Set(key, value)`, `(*Client).Delete(key)`, `(*Client).List()`, `ParseTitles(json)`, `ErrNotFound`, `ErrUnavailable` | Wraps 1Password `op` CLI. No package-level `Available()` function — use `(*Client).Available()` directly. `ParseTitles` is exported so it can be tested from the `_test` package. `Set` tries edit-first, falls back to create. |
+| `onepassword_test.go` | — | `package onepassword_test`. Table-driven tests for `ParseTitles`: empty input, single item, multiple items, special characters, no title fields. |
 
 ## Architecture
 

@@ -4,6 +4,8 @@
 // All entries are stored with:
 //   - account:  current $USER
 //   - service:  the key name as-is (callers should namespace, e.g. "myapp_DB_PASSWORD")
+//
+// Use Client to interact with the keychain. The zero value is ready to use.
 package keychain
 
 import (
@@ -24,36 +26,15 @@ type Client struct{}
 
 // Get retrieves the secret for the given service key.
 // Returns ErrNotFound if the entry does not exist.
-func (Client) Get(service string) (string, error) { return Get(service) }
-
-// Set stores or overwrites a secret.
-func (Client) Set(service, value string) error { return Set(service, value) }
-
-// Delete removes the keychain entry for the given service key.
-// Returns ErrNotFound if the entry does not exist.
-func (Client) Delete(service string) error { return Delete(service) }
-
-func user() string {
-	u := os.Getenv("USER")
-	if u == "" {
-		u = os.Getenv("LOGNAME")
-	}
-
-	return u
-}
-
-// Get retrieves the secret for the given service key.
-// Returns ErrNotFound if the entry does not exist.
-func Get(service string) (string, error) {
+func (Client) Get(service string) (string, error) {
 	out, err := exec.Command(
 		"security",
 		"find-generic-password",
-		"-a", user(),
+		"-a", currentUser(),
 		"-s", service,
 		"-w",
 	).Output()
 	if err != nil {
-
 		if _, ok := errors.AsType[*exec.ExitError](err); ok {
 			// exit code 44 = "The specified item could not be found in the keychain."
 			return "", ErrNotFound
@@ -67,14 +48,14 @@ func Get(service string) (string, error) {
 
 // Set stores or overwrites a secret. It deletes any existing entry first to
 // avoid the "duplicate item" error that `add-generic-password` produces.
-func Set(service, value string) error {
+func (c Client) Set(service, value string) error {
 	// Best-effort delete; ignore errors (entry may not exist yet).
-	_ = delete(service)
+	_ = c.remove(service)
 
 	cmd := exec.Command(
 		"security",
 		"add-generic-password",
-		"-a", user(),
+		"-a", currentUser(),
 		"-s", service,
 		"-w", value,
 	)
@@ -88,20 +69,20 @@ func Set(service, value string) error {
 
 // Delete removes the keychain entry for the given service key.
 // Returns ErrNotFound if the entry does not exist.
-func Delete(service string) error {
-	return delete(service)
+func (c Client) Delete(service string) error {
+	return c.remove(service)
 }
 
-func delete(service string) error {
+// remove is the internal implementation for deleting a keychain entry.
+func (Client) remove(service string) error {
 	cmd := exec.Command(
 		"security",
 		"delete-generic-password",
-		"-a", user(),
+		"-a", currentUser(),
 		"-s", service,
 	)
 
 	if out, err := cmd.CombinedOutput(); err != nil {
-
 		if _, ok := errors.AsType[*exec.ExitError](err); ok {
 			return ErrNotFound
 		}
@@ -110,4 +91,14 @@ func delete(service string) error {
 	}
 
 	return nil
+}
+
+// currentUser returns the OS username, falling back to LOGNAME.
+func currentUser() string {
+	u := os.Getenv("USER")
+	if u == "" {
+		u = os.Getenv("LOGNAME")
+	}
+
+	return u
 }

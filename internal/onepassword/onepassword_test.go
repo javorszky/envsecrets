@@ -1,8 +1,9 @@
-package onepassword
+package onepassword_test
 
 import (
 	"testing"
 
+	"github.com/javorszky/envsecrets/internal/onepassword"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -55,7 +56,7 @@ func TestParseTitles(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := parseTitles(tc.input)
+			got, err := onepassword.ParseTitles(tc.input)
 
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, got)

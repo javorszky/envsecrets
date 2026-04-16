@@ -31,13 +31,6 @@ func New(vault string) *Client {
 	return &Client{Vault: vault}
 }
 
-// Available reports whether the `op` binary is present and the local app is
-// reachable. It does NOT verify that the vault is accessible.
-// It is a package-level convenience wrapper around (*Client).Available.
-func Available() bool {
-	return new(Client).Available()
-}
-
 // Available reports whether the op CLI is present and the local 1Password app
 // is running and signed in. It does NOT verify vault accessibility.
 func (c *Client) Available() bool {
@@ -107,7 +100,7 @@ func (c *Client) List() ([]string, error) {
 	// Parse just the titles from the JSON array.
 	// We avoid importing encoding/json for a full struct — a simple title
 	// extraction is sufficient and keeps the package lean.
-	titles, err := parseTitles(string(out))
+	titles, err := ParseTitles(string(out))
 	if err != nil {
 		return nil, fmt.Errorf("1password list parse: %w", err)
 	}
@@ -167,10 +160,10 @@ func (c *Client) classifyErrorWithOutput(key string, err error, out []byte) erro
 	return fmt.Errorf("1password op on %q: %w", key, err)
 }
 
-// parseTitles does a minimal extraction of "title" fields from the op JSON
-// output without pulling in encoding/json at the package level.
-// The JSON looks like: [{"id":"...","title":"MY_KEY","vault":{...}}, ...]
-func parseTitles(jsonStr string) ([]string, error) {
+// ParseTitles extracts item titles from the JSON array returned by `op item list`.
+// The expected shape is: [{"id":"...","title":"MY_KEY","vault":{...}}, ...]
+// It avoids importing encoding/json to keep the package lean.
+func ParseTitles(jsonStr string) ([]string, error) {
 	// Manual scan instead of encoding/json to keep the package lean.
 	var titles []string
 
