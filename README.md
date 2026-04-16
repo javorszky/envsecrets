@@ -37,7 +37,7 @@ mv envsecrets /usr/local/bin/
 
 ```sh
 envsecrets store DATABASE_URL "postgres://user:pass@localhost/mydb"
-envsecrets store --vault Work SLACK_TOKEN "xoxb-..."
+envsecrets store --op-vault Work SLACK_TOKEN "xoxb-..."
 ```
 
 Writes to Keychain and, if 1Password is available, also to your vault. If 1Password is unreachable, the secret is still saved locally and a warning is printed.
@@ -63,7 +63,7 @@ Semantically equivalent to `store`. Both upsert — `update` signals intent that
 
 ```sh
 envsecrets delete DATABASE_URL
-envsecrets delete --force OLD_API_KEY
+envsecrets delete --force OLD_API_KEY   # skip confirmation prompt
 ```
 
 Removes from both Keychain and 1Password. Prompts for confirmation unless `--force` / `-f` is passed.
@@ -72,7 +72,7 @@ Removes from both Keychain and 1Password. Prompts for confirmation unless `--for
 
 ```sh
 envsecrets sync
-envsecrets sync --vault Work
+envsecrets sync --op-vault Work
 ```
 
 Fetches every item from the configured 1Password vault and writes it into the local Keychain. Run this once on a new machine to bootstrap your local secrets from 1Password.
@@ -117,15 +117,41 @@ Run `envsecrets gen-env` to produce `.env` with real values injected. Lines with
 
 ## Vault configuration
 
-By default, envsecrets uses the `Private` 1Password vault. Override it two ways:
+envsecrets uses two separate vault concepts:
+
+| Setting | What it controls | Default |
+|---------|-----------------|---------|
+| `vault` | Name of the dedicated local keychain file (`~/.local/share/envsecrets/<name>.keychain`) | `envsecrets` |
+| `op_vault` | 1Password vault where secrets are stored | `Private` |
+
+> **Recommendation:** Use a dedicated 1Password vault (not your personal `Private` vault) for envsecrets secrets. This keeps your secrets organised, easier to audit, and separate from personal items. envsecrets will **create the vault automatically** on first write if it does not exist.
+
+### Setting the 1Password vault
 
 ```sh
 # Environment variable (set once in your shell profile)
-export ENVSECRETS_VAULT=MyVault
+export ENVSECRETS_OP_VAULT=envsecrets
 
 # Per-command flag
-envsecrets store --vault MyVault MY_SECRET "value"
+envsecrets store --op-vault envsecrets MY_SECRET "value"
+
+# Config file (recommended — run once per machine)
+envsecrets config init
+# then edit ~/.config/envsecrets.toml and set:
+#   op_vault = "envsecrets"
 ```
+
+### Setting the keychain file name
+
+```sh
+# Environment variable
+export ENVSECRETS_VAULT=myproject
+
+# Per-command flag
+envsecrets store --vault myproject MY_SECRET "value"
+```
+
+The keychain name is typically left at the default (`envsecrets`) unless you want per-project isolation.
 
 ## New machine setup
 

@@ -26,6 +26,7 @@ where that value is coming from (flag, environment variable, config file, or def
 
 		rows := []struct{ key, value, source string }{
 			{"vault", cfg.Vault, cfg.Sources.Vault},
+			{"op_vault", cfg.OpVault, cfg.Sources.OpVault},
 			{"template", cfg.Template, cfg.Sources.Template},
 			{"output", cfg.Output, cfg.Sources.Output},
 		}

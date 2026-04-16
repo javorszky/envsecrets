@@ -34,6 +34,16 @@ type SecretStore interface {
 	List(ctx context.Context) ([]string, error)
 }
 
+// VaultEnsurer is an optional interface that a SecretStore backend may
+// implement if it supports auto-creating a vault on first use.
+// *onepassword.Client implements this; *keychain.Client does not.
+type VaultEnsurer interface {
+	// EnsureVault creates the vault if it does not already exist.
+	// Returns (true, nil) when the vault was newly created,
+	// (false, nil) when it already existed, or (false, err) on failure.
+	EnsureVault(ctx context.Context) (bool, error)
+}
+
 // Manager orchestrates secrets across Keychain and 1Password.
 type Manager struct {
 	kc   SecretStore
@@ -41,11 +51,14 @@ type Manager struct {
 	warn io.Writer // destination for non-fatal warnings (defaults to stderr)
 }
 
-// New returns a Manager backed by macOS Keychain and the given 1Password vault.
-func New(vault string) *Manager {
+// New returns a Manager backed by a dedicated local keychain file and the
+// given 1Password vault.
+//   - keychainVault: name for the keychain file (~/.local/share/envsecrets/<name>.keychain)
+//   - opVault:       1Password vault name where secrets are stored
+func New(keychainVault, opVault string) *Manager {
 	return &Manager{
-		kc:   keychain.New(vault),
-		op:   onepassword.New(vault),
+		kc:   keychain.New(keychainVault),
+		op:   onepassword.New(opVault),
 		warn: os.Stderr,
 	}
 }
@@ -107,6 +120,7 @@ func (m *Manager) Get(ctx context.Context, key string) (string, error) {
 // Set writes the secret to both backends.
 // 1Password failure is treated as a warning — the secret is still stored
 // locally in Keychain so the workflow continues offline.
+// If the 1Password vault does not exist, it is created automatically.
 func (m *Manager) Set(ctx context.Context, key, value string) error {
 	if err := m.kc.Set(ctx, key, value); err != nil {
 		return fmt.Errorf("keychain write: %w", err)
@@ -115,6 +129,15 @@ func (m *Manager) Set(ctx context.Context, key, value string) error {
 	if !m.op.Available(ctx) {
 		_, _ = fmt.Fprintf(m.warn, "warning: 1Password unavailable; %q stored in keychain only\n", key)
 		return nil
+	}
+
+	// Ensure the 1Password vault exists, creating it if necessary.
+	if ensurer, ok := m.op.(VaultEnsurer); ok {
+		if created, err := ensurer.EnsureVault(ctx); err != nil {
+			_, _ = fmt.Fprintf(m.warn, "warning: could not ensure 1Password vault: %v\n", err)
+		} else if created {
+			_, _ = fmt.Fprintf(m.warn, "info: 1Password vault created\n")
+		}
 	}
 
 	if err := m.op.Set(ctx, key, value); err != nil {
