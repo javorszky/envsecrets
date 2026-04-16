@@ -26,10 +26,11 @@ Examples:
   envsecrets fetch --vault Work DB_PASSWORD`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := cmd.Context()
 		key := args[0]
 		mgr := secrets.New(cfg.Vault)
 
-		val, err := mgr.Get(key)
+		val, err := mgr.Get(ctx, key)
 		if err != nil {
 			return fmt.Errorf("fetch failed: %w", err)
 		}

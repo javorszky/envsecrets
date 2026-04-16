@@ -7,7 +7,7 @@ Codebase table of contents for quick navigation. Consult this before scanning th
 | File | Purpose |
 |------|---------|
 | `main.go` | Entry point. Calls `cmd.Execute()`. |
-| `go.mod` | Module `github.com/javorszky/envsecrets`, Go 1.26.2. Depends on `spf13/cobra`, `spf13/viper`. |
+| `go.mod` | Module `github.com/javorszky/envsecrets`, Go 1.26.2. Depends on `spf13/cobra`, `spf13/viper`, `stretchr/testify` (test). |
 | `go.sum` | Dependency checksums. |
 | `LICENSE` | MIT license. |
 | `README.md` | User-facing documentation: installation, usage, architecture. |
@@ -45,24 +45,27 @@ All commands share a package-level `cfg *config.Config` populated by `initConfig
 | File | Key Exports | Description |
 |------|-------------|-------------|
 | `config.go` | `Config` struct, `Sources` struct, `Load(configFlagValue string) *Config` | Single home for all viper logic. `Load` resolves config file path (`--config` flag → `$ENVSECRETS_CONFIG` → `~/.config/envsecrets.toml`), binds env vars, sets defaults, reads the TOML file, and returns a fully-populated `*Config`. Source attribution (`"default"` / `"config file"` / `"env ($VAR)"`) is set on `Config.Sources`; flag overrides (`"flag (--name)"`) are applied by the cmd layer after Load returns. Viper is imported **only** in this package. |
+| `config_test.go` | — | `package config_test`. Table-driven tests for `Load()`: default values, config-file values, env-var overrides, env-beats-file precedence, `FileFound`/`FilePath` state, and `ENVSECRETS_CONFIG` env-var path resolution. Uses `t.Setenv` and `t.TempDir` to stay hermetic. |
 
 ## `internal/secrets/` - Orchestration Layer
 
 | File | Key Exports | Description |
 |------|-------------|-------------|
-| `secrets.go` | `Manager` struct, `New(vault)`, `Get(key)`, `Set(key, value)`, `Update(key, value)`, `Delete(key)`, `Sync()`, `WithWarningWriter(w)` | Coordinates Keychain and 1Password. Read path: Keychain first, fallback to 1Password (caches result back to Keychain). Write path: Keychain must succeed, 1Password is best-effort. Delete: attempts both, combines errors via `errors.Join()`. |
+| `secrets.go` | `Keychain` interface, `OnePassword` interface, `Manager` struct, `New(vault)`, `NewWithBackends(kc, op)`, `Get(ctx, key)`, `Set(ctx, key, value)`, `Update(ctx, key, value)`, `Delete(ctx, key)`, `Sync(ctx)`, `WithWarningWriter(w)` | Coordinates Keychain and 1Password through interfaces. All `Manager` methods accept a `context.Context` that is threaded down into every backend call. `New` wires up `keychain.Client` and `*onepassword.Client`. `NewWithBackends` accepts any implementations — used by tests. Read path: Keychain first, fallback to 1Password (caches result). Write path: Keychain must succeed, 1Password is best-effort. Delete: attempts both, combines errors via `errors.Join()`. |
+| `secrets_test.go` | — | `package secrets_test`. Table-driven tests for all `Manager` methods using in-memory `stubKC` and `stubOP` implementations. Covers every branch: cache hits/misses, backend unavailability, partial failures, and warning emission. |
 
 ## `internal/keychain/` - macOS Keychain Backend
 
 | File | Key Exports | Description |
 |------|-------------|-------------|
-| `keychain.go` | `Get(service)`, `Set(service, value)`, `Delete(service)`, `ErrNotFound` | Wraps macOS `security` CLI. Stores generic passwords keyed by `$USER` (account) and service name. `Set` does delete-then-add to avoid duplicates. |
+| `keychain.go` | `Client` struct, `ErrNotFound` | Wraps macOS `security` CLI. `Client` is the sole public API; its `Get(ctx, service)`, `Set(ctx, service, value)`, `Delete(ctx, service)` methods use `exec.CommandContext` and contain the implementation directly (no exported package-level functions). `Set` does delete-then-add via the private `remove` helper. Satisfies `secrets.Keychain`. |
 
 ## `internal/onepassword/` - 1Password Backend
 
 | File | Key Exports | Description |
 |------|-------------|-------------|
-| `onepassword.go` | `Client` struct, `New(vault)`, `Available()`, `Get(key)`, `Set(key, value)`, `Delete(key)`, `List()`, `ErrNotFound`, `ErrUnavailable` | Wraps 1Password `op` CLI. Stores secrets as Login items (title = key, password field = value). `Set` tries edit-first, falls back to create. `List` returns all item titles in the vault. Error classification maps `op` CLI output to sentinel errors. |
+| `onepassword.go` | `Client` struct, `New(vault)`, `(*Client).Available(ctx)`, `(*Client).Get(ctx, key)`, `(*Client).Set(ctx, key, value)`, `(*Client).Delete(ctx, key)`, `(*Client).List(ctx)`, `ParseTitles(json)`, `ErrNotFound`, `ErrUnavailable` | Wraps 1Password `op` CLI. All methods accept a `context.Context` and use `exec.CommandContext`. No package-level `Available()` — use the method directly. `ParseTitles` is exported for `_test` package access. `Set` tries edit-first, falls back to create. |
+| `onepassword_test.go` | — | `package onepassword_test`. Table-driven tests for `ParseTitles`: empty input, single item, multiple items, special characters, no title fields. |
 
 ## Architecture
 

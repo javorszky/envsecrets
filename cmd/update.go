@@ -21,10 +21,11 @@ Examples:
   envsecrets update --vault Work DB_PASSWORD newpassword`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := cmd.Context()
 		key, value := args[0], args[1]
 		mgr := secrets.New(cfg.Vault)
 
-		if err := mgr.Update(key, value); err != nil {
+		if err := mgr.Update(ctx, key, value); err != nil {
 			return fmt.Errorf("update failed: %w", err)
 		}
 
