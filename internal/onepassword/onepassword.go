@@ -96,8 +96,6 @@ func (c *Client) Delete(ctx context.Context, key string) error {
 // EnsureVault creates the configured vault in 1Password if it does not already
 // exist. Returns (true, nil) when the vault was newly created, (false, nil)
 // when it already existed, or (false, err) on failure.
-//
-// This satisfies the secrets.VaultEnsurer interface.
 func (c *Client) EnsureVault(ctx context.Context) (bool, error) {
 	cmd := exec.CommandContext(ctx, "op", "vault", "list", "--format", "json")
 

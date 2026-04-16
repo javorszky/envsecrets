@@ -32,13 +32,8 @@ type SecretStore interface {
 	Set(ctx context.Context, key, value string) error
 	Delete(ctx context.Context, key string) error
 	List(ctx context.Context) ([]string, error)
-}
-
-// VaultEnsurer is an optional interface that a SecretStore backend may
-// implement if it supports auto-creating a vault on first use.
-// *onepassword.Client implements this; *keychain.Client does not.
-type VaultEnsurer interface {
-	// EnsureVault creates the vault if it does not already exist.
+	// EnsureVault creates the backend vault (keychain file or 1Password vault)
+	// if it does not already exist, or unlocks/verifies it if it does.
 	// Returns (true, nil) when the vault was newly created,
 	// (false, nil) when it already existed, or (false, err) on failure.
 	EnsureVault(ctx context.Context) (bool, error)
@@ -120,8 +115,16 @@ func (m *Manager) Get(ctx context.Context, key string) (string, error) {
 // Set writes the secret to both backends.
 // 1Password failure is treated as a warning — the secret is still stored
 // locally in Keychain so the workflow continues offline.
-// If the 1Password vault does not exist, it is created automatically.
+// If either vault does not exist, it is created automatically.
 func (m *Manager) Set(ctx context.Context, key, value string) error {
+	// Ensure the keychain vault (file) exists before writing.
+	// This is fatal: without the keychain file we cannot store anything locally.
+	if created, err := m.kc.EnsureVault(ctx); err != nil {
+		return fmt.Errorf("keychain vault ensure: %w", err)
+	} else if created {
+		_, _ = fmt.Fprintf(m.warn, "info: keychain vault created\n")
+	}
+
 	if err := m.kc.Set(ctx, key, value); err != nil {
 		return fmt.Errorf("keychain write: %w", err)
 	}
@@ -132,12 +135,10 @@ func (m *Manager) Set(ctx context.Context, key, value string) error {
 	}
 
 	// Ensure the 1Password vault exists, creating it if necessary.
-	if ensurer, ok := m.op.(VaultEnsurer); ok {
-		if created, err := ensurer.EnsureVault(ctx); err != nil {
-			_, _ = fmt.Fprintf(m.warn, "warning: could not ensure 1Password vault: %v\n", err)
-		} else if created {
-			_, _ = fmt.Fprintf(m.warn, "info: 1Password vault created\n")
-		}
+	if created, err := m.op.EnsureVault(ctx); err != nil {
+		_, _ = fmt.Fprintf(m.warn, "warning: could not ensure 1Password vault: %v\n", err)
+	} else if created {
+		_, _ = fmt.Fprintf(m.warn, "info: 1Password vault created\n")
 	}
 
 	if err := m.op.Set(ctx, key, value); err != nil {

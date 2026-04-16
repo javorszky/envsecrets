@@ -162,6 +162,25 @@ func ParseDumpServices(output string) []string {
 	return services
 }
 
+// EnsureVault creates the dedicated keychain file if it does not already exist,
+// or unlocks it if it does. Returns (true, nil) when the file was newly
+// created, (false, nil) when it already existed, or (false, err) on failure.
+func (c *Client) EnsureVault(ctx context.Context) (bool, error) {
+	if _, err := os.Stat(c.keychainPath); errors.Is(err, os.ErrNotExist) {
+		if createErr := c.createKeychainFile(ctx); createErr != nil {
+			return false, createErr
+		}
+
+		return true, nil
+	}
+
+	if err := c.unlockKeychainFile(ctx); err != nil {
+		return false, err
+	}
+
+	return false, nil
+}
+
 // --- keychain file lifecycle -------------------------------------------------
 
 // ensure creates or unlocks the dedicated keychain file. Called at the start
