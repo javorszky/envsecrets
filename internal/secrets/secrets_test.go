@@ -96,8 +96,8 @@ func (s *stubStore) List(_ context.Context) ([]string, error) {
 	return keys, nil
 }
 
-// EnsureVault implements secrets.VaultEnsurer — present on stubStore so tests
-// can exercise the vault-creation path in Manager.Set.
+// EnsureVault implements the EnsureVault method of the secrets.SecretStore
+// interface. It exercises the vault-creation path in Manager.Set.
 func (s *stubStore) EnsureVault(_ context.Context) (bool, error) {
 	if s.vaultEnsureErr != nil {
 		return false, s.vaultEnsureErr
@@ -249,6 +249,8 @@ func TestManager_Set(t *testing.T) {
 	tests := []struct {
 		name             string
 		kcSetErr         error
+		kcVaultCreated   bool
+		kcVaultEnsureErr error
 		opAvail          bool
 		opSetErr         error
 		opVaultCreated   bool
@@ -315,6 +317,25 @@ func TestManager_Set(t *testing.T) {
 			wantOPAfter:      map[string]string{"DB_PASS": "secret123"},
 			wantWarning:      "could not ensure 1Password vault",
 		},
+		{
+			name:           "keychain vault created on first use — info message emitted",
+			opAvail:        true,
+			kcVaultCreated: true,
+			key:            "DB_PASS",
+			value:          "secret123",
+			wantKCAfter:    map[string]string{"DB_PASS": "secret123"},
+			wantOPAfter:    map[string]string{"DB_PASS": "secret123"},
+			wantWarning:    "info: keychain vault created",
+		},
+		{
+			name:             "keychain vault ensure fails — error returned",
+			opAvail:          true,
+			kcVaultEnsureErr: errors.New("disk full"),
+			key:              "DB_PASS",
+			value:            "secret123",
+			wantErr:          true,
+			wantErrContains:  "keychain vault ensure",
+		},
 	}
 
 	for _, tc := range tests {
@@ -323,6 +344,8 @@ func TestManager_Set(t *testing.T) {
 
 			kc := newStubStore(true, keychain.ErrNotFound, nil)
 			kc.setErr = tc.kcSetErr
+			kc.vaultCreated = tc.kcVaultCreated
+			kc.vaultEnsureErr = tc.kcVaultEnsureErr
 
 			op := newStubStore(tc.opAvail, onepassword.ErrNotFound, nil)
 			op.setErr = tc.opSetErr
