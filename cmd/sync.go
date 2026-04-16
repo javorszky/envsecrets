@@ -24,12 +24,13 @@ Examples:
   envsecrets sync --vault Work`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := cmd.Context()
 		vault := cfg.Vault
 		mgr := secrets.New(vault)
 
 		_, _ = fmt.Fprintf(os.Stdout, "syncing from 1Password vault %q...\n", vault)
 
-		n, err := mgr.Sync()
+		n, err := mgr.Sync(ctx)
 		if err != nil {
 			return fmt.Errorf("sync failed: %w", err)
 		}

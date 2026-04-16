@@ -39,6 +39,7 @@ Examples:
   envsecrets gen-env --vault Work --template staging.env.tpl --output staging.env`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := cmd.Context()
 		mgr := secrets.New(cfg.Vault)
 
 		templatePath := cfg.Template
@@ -88,7 +89,7 @@ Examples:
 
 			secretKey := strings.TrimPrefix(envVal, "secret:")
 
-			val, fetchErr := mgr.Get(secretKey)
+			val, fetchErr := mgr.Get(ctx, secretKey)
 			if fetchErr != nil {
 				return fmt.Errorf("line %d: resolving %q: %w", lineNo, secretKey, fetchErr)
 			}

@@ -29,6 +29,7 @@ Examples:
   envsecrets delete --vault Work DB_PASSWORD`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := cmd.Context()
 		key := args[0]
 
 		if !forceFlag {
@@ -46,7 +47,7 @@ Examples:
 
 		mgr := secrets.New(cfg.Vault)
 
-		if err := mgr.Delete(key); err != nil {
+		if err := mgr.Delete(ctx, key); err != nil {
 			return fmt.Errorf("delete failed: %w", err)
 		}
 

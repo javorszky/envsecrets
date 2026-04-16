@@ -51,20 +51,20 @@ All commands share a package-level `cfg *config.Config` populated by `initConfig
 
 | File | Key Exports | Description |
 |------|-------------|-------------|
-| `secrets.go` | `Keychain` interface, `OnePassword` interface, `Manager` struct, `New(vault)`, `NewWithBackends(kc, op)`, `Get(key)`, `Set(key, value)`, `Update(key, value)`, `Delete(key)`, `Sync()`, `WithWarningWriter(w)` | Coordinates Keychain and 1Password through interfaces. `New` wires up `keychain.Client` and `*onepassword.Client`. `NewWithBackends` accepts any implementations — used by tests. Read path: Keychain first, fallback to 1Password (caches result back to Keychain). Write path: Keychain must succeed, 1Password is best-effort. Delete: attempts both, combines errors via `errors.Join()`. |
+| `secrets.go` | `Keychain` interface, `OnePassword` interface, `Manager` struct, `New(vault)`, `NewWithBackends(kc, op)`, `Get(ctx, key)`, `Set(ctx, key, value)`, `Update(ctx, key, value)`, `Delete(ctx, key)`, `Sync(ctx)`, `WithWarningWriter(w)` | Coordinates Keychain and 1Password through interfaces. All `Manager` methods accept a `context.Context` that is threaded down into every backend call. `New` wires up `keychain.Client` and `*onepassword.Client`. `NewWithBackends` accepts any implementations — used by tests. Read path: Keychain first, fallback to 1Password (caches result). Write path: Keychain must succeed, 1Password is best-effort. Delete: attempts both, combines errors via `errors.Join()`. |
 | `secrets_test.go` | — | `package secrets_test`. Table-driven tests for all `Manager` methods using in-memory `stubKC` and `stubOP` implementations. Covers every branch: cache hits/misses, backend unavailability, partial failures, and warning emission. |
 
 ## `internal/keychain/` - macOS Keychain Backend
 
 | File | Key Exports | Description |
 |------|-------------|-------------|
-| `keychain.go` | `Client` struct, `ErrNotFound` | Wraps macOS `security` CLI. `Client` is the sole public API; its `Get`, `Set`, `Delete` methods contain the implementation directly (no exported package-level functions). `Set` does delete-then-add via the private `remove` helper to avoid duplicates. Satisfies `secrets.Keychain`. |
+| `keychain.go` | `Client` struct, `ErrNotFound` | Wraps macOS `security` CLI. `Client` is the sole public API; its `Get(ctx, service)`, `Set(ctx, service, value)`, `Delete(ctx, service)` methods use `exec.CommandContext` and contain the implementation directly (no exported package-level functions). `Set` does delete-then-add via the private `remove` helper. Satisfies `secrets.Keychain`. |
 
 ## `internal/onepassword/` - 1Password Backend
 
 | File | Key Exports | Description |
 |------|-------------|-------------|
-| `onepassword.go` | `Client` struct, `New(vault)`, `(*Client).Available()`, `(*Client).Get(key)`, `(*Client).Set(key, value)`, `(*Client).Delete(key)`, `(*Client).List()`, `ParseTitles(json)`, `ErrNotFound`, `ErrUnavailable` | Wraps 1Password `op` CLI. No package-level `Available()` function — use `(*Client).Available()` directly. `ParseTitles` is exported so it can be tested from the `_test` package. `Set` tries edit-first, falls back to create. |
+| `onepassword.go` | `Client` struct, `New(vault)`, `(*Client).Available(ctx)`, `(*Client).Get(ctx, key)`, `(*Client).Set(ctx, key, value)`, `(*Client).Delete(ctx, key)`, `(*Client).List(ctx)`, `ParseTitles(json)`, `ErrNotFound`, `ErrUnavailable` | Wraps 1Password `op` CLI. All methods accept a `context.Context` and use `exec.CommandContext`. No package-level `Available()` — use the method directly. `ParseTitles` is exported for `_test` package access. `Set` tries edit-first, falls back to create. |
 | `onepassword_test.go` | — | `package onepassword_test`. Table-driven tests for `ParseTitles`: empty input, single item, multiple items, special characters, no title fields. |
 
 ## Architecture

@@ -1,6 +1,7 @@
 package secrets_test
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -35,7 +36,7 @@ func newStubKC(initial map[string]string) *stubKC {
 	return &stubKC{data: data}
 }
 
-func (s *stubKC) Get(key string) (string, error) {
+func (s *stubKC) Get(_ context.Context, key string) (string, error) {
 	if s.getErr != nil {
 		return "", s.getErr
 	}
@@ -46,7 +47,7 @@ func (s *stubKC) Get(key string) (string, error) {
 	return v, nil
 }
 
-func (s *stubKC) Set(key, value string) error {
+func (s *stubKC) Set(_ context.Context, key, value string) error {
 	if s.setErr != nil {
 		return s.setErr
 	}
@@ -54,7 +55,7 @@ func (s *stubKC) Set(key, value string) error {
 	return nil
 }
 
-func (s *stubKC) Delete(key string) error {
+func (s *stubKC) Delete(_ context.Context, key string) error {
 	if s.deleteErr != nil {
 		return s.deleteErr
 	}
@@ -83,9 +84,9 @@ func newStubOP(avail bool, initial map[string]string) *stubOP {
 	return &stubOP{avail: avail, data: data}
 }
 
-func (s *stubOP) Available() bool { return s.avail }
+func (s *stubOP) Available(_ context.Context) bool { return s.avail }
 
-func (s *stubOP) Get(key string) (string, error) {
+func (s *stubOP) Get(_ context.Context, key string) (string, error) {
 	if s.getErr != nil {
 		return "", s.getErr
 	}
@@ -96,7 +97,7 @@ func (s *stubOP) Get(key string) (string, error) {
 	return v, nil
 }
 
-func (s *stubOP) Set(key, value string) error {
+func (s *stubOP) Set(_ context.Context, key, value string) error {
 	if s.setErr != nil {
 		return s.setErr
 	}
@@ -104,7 +105,7 @@ func (s *stubOP) Set(key, value string) error {
 	return nil
 }
 
-func (s *stubOP) Delete(key string) error {
+func (s *stubOP) Delete(_ context.Context, key string) error {
 	if s.deleteErr != nil {
 		return s.deleteErr
 	}
@@ -115,7 +116,7 @@ func (s *stubOP) Delete(key string) error {
 	return nil
 }
 
-func (s *stubOP) List() ([]string, error) {
+func (s *stubOP) List(_ context.Context) ([]string, error) {
 	if s.listErr != nil {
 		return nil, s.listErr
 	}
@@ -235,7 +236,7 @@ func TestManager_Get(t *testing.T) {
 
 			mgr, warnBuf := newMgr(kc, op)
 
-			val, err := mgr.Get(tc.key)
+			val, err := mgr.Get(context.Background(), tc.key)
 
 			if tc.wantErr {
 				require.Error(t, err)
@@ -327,7 +328,7 @@ func TestManager_Set(t *testing.T) {
 
 			mgr, warnBuf := newMgr(kc, op)
 
-			err := mgr.Set(tc.key, tc.value)
+			err := mgr.Set(context.Background(), tc.key, tc.value)
 
 			if tc.wantErr {
 				require.Error(t, err)
@@ -365,7 +366,7 @@ func TestManager_Update(t *testing.T) {
 	op := newStubOP(true, map[string]string{"KEY": "old"})
 	mgr, _ := newMgr(kc, op)
 
-	require.NoError(t, mgr.Update("KEY", "new"))
+	require.NoError(t, mgr.Update(context.Background(), "KEY", "new"))
 	assert.Equal(t, "new", kc.data["KEY"])
 	assert.Equal(t, "new", op.data["KEY"])
 }
@@ -476,7 +477,7 @@ func TestManager_Delete(t *testing.T) {
 
 			mgr, warnBuf := newMgr(kc, op)
 
-			err := mgr.Delete(tc.key)
+			err := mgr.Delete(context.Background(), tc.key)
 
 			if tc.wantErr {
 				require.Error(t, err)
@@ -579,7 +580,7 @@ func TestManager_Sync(t *testing.T) {
 
 			mgr, warnBuf := newMgr(kc, op)
 
-			synced, err := mgr.Sync()
+			synced, err := mgr.Sync(context.Background())
 
 			if tc.wantErr {
 				require.Error(t, err)

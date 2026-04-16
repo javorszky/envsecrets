@@ -7,6 +7,7 @@
 package onepassword
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -33,21 +34,25 @@ func New(vault string) *Client {
 
 // Available reports whether the op CLI is present and the local 1Password app
 // is running and signed in. It does NOT verify vault accessibility.
-func (c *Client) Available() bool {
+func (c *Client) Available(ctx context.Context) bool {
 	_, err := exec.LookPath("op")
 	if err != nil {
 		return false
 	}
 
 	// `op account list` exits 0 when the app is running and signed in.
-	return exec.Command("op", "account", "list").Run() == nil
+	cmd := exec.CommandContext(ctx, "op", "account", "list")
+
+	return cmd.Run() == nil
 }
 
 // Get retrieves the password field of the item whose title matches key.
-func (c *Client) Get(key string) (string, error) {
+func (c *Client) Get(ctx context.Context, key string) (string, error) {
 	ref := fmt.Sprintf("op://%s/%s/password", c.Vault, key)
 
-	out, err := exec.Command("op", "read", ref).Output()
+	cmd := exec.CommandContext(ctx, "op", "read", ref)
+
+	out, err := cmd.Output()
 	if err != nil {
 		return "", c.classifyError(key, err)
 	}
@@ -57,9 +62,9 @@ func (c *Client) Get(key string) (string, error) {
 
 // Set creates or updates an item. It attempts an edit first; if the item does
 // not exist it creates a new Login item.
-func (c *Client) Set(key, value string) error {
+func (c *Client) Set(ctx context.Context, key, value string) error {
 	// Try editing an existing item first.
-	err := c.edit(key, value)
+	err := c.edit(ctx, key, value)
 	if err == nil {
 		return nil
 	}
@@ -69,16 +74,18 @@ func (c *Client) Set(key, value string) error {
 	}
 
 	// Item not found — create it.
-	return c.create(key, value)
+	return c.create(ctx, key, value)
 }
 
 // Delete removes the item whose title matches key from the vault.
-func (c *Client) Delete(key string) error {
-	out, err := exec.Command(
+func (c *Client) Delete(ctx context.Context, key string) error {
+	cmd := exec.CommandContext(ctx,
 		"op", "item", "delete",
 		"--vault", c.Vault,
 		key,
-	).CombinedOutput()
+	)
+
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return c.classifyErrorWithOutput(key, err, out)
 	}
@@ -87,12 +94,14 @@ func (c *Client) Delete(key string) error {
 }
 
 // List returns all item titles in the vault. Used by the sync command.
-func (c *Client) List() ([]string, error) {
-	out, err := exec.Command(
+func (c *Client) List(ctx context.Context) ([]string, error) {
+	cmd := exec.CommandContext(ctx,
 		"op", "item", "list",
 		"--vault", c.Vault,
 		"--format", "json",
-	).Output()
+	)
+
+	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("1password list vault %q: %w", c.Vault, err)
 	}
@@ -110,14 +119,16 @@ func (c *Client) List() ([]string, error) {
 
 // --- private helpers --------------------------------------------------------
 
-func (c *Client) create(key, value string) error {
-	out, err := exec.Command(
+func (c *Client) create(ctx context.Context, key, value string) error {
+	cmd := exec.CommandContext(ctx,
 		"op", "item", "create",
 		"--category", "Login",
 		"--vault", c.Vault,
 		"--title", key,
 		fmt.Sprintf("password=%s", value),
-	).CombinedOutput()
+	)
+
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("1password create %q: %w\n%s", key, err, out)
 	}
@@ -125,13 +136,15 @@ func (c *Client) create(key, value string) error {
 	return nil
 }
 
-func (c *Client) edit(key, value string) error {
-	out, err := exec.Command(
+func (c *Client) edit(ctx context.Context, key, value string) error {
+	cmd := exec.CommandContext(ctx,
 		"op", "item", "edit",
 		"--vault", c.Vault,
 		key,
 		fmt.Sprintf("password=%s", value),
-	).CombinedOutput()
+	)
+
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return c.classifyErrorWithOutput(key, err, out)
 	}

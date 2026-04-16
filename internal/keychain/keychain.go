@@ -9,6 +9,7 @@
 package keychain
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -26,14 +27,16 @@ type Client struct{}
 
 // Get retrieves the secret for the given service key.
 // Returns ErrNotFound if the entry does not exist.
-func (Client) Get(service string) (string, error) {
-	out, err := exec.Command(
+func (Client) Get(ctx context.Context, service string) (string, error) {
+	cmd := exec.CommandContext(ctx,
 		"security",
 		"find-generic-password",
 		"-a", currentUser(),
 		"-s", service,
 		"-w",
-	).Output()
+	)
+
+	out, err := cmd.Output()
 	if err != nil {
 		if _, ok := errors.AsType[*exec.ExitError](err); ok {
 			// exit code 44 = "The specified item could not be found in the keychain."
@@ -48,11 +51,11 @@ func (Client) Get(service string) (string, error) {
 
 // Set stores or overwrites a secret. It deletes any existing entry first to
 // avoid the "duplicate item" error that `add-generic-password` produces.
-func (c Client) Set(service, value string) error {
+func (c Client) Set(ctx context.Context, service, value string) error {
 	// Best-effort delete; ignore errors (entry may not exist yet).
-	_ = c.remove(service)
+	_ = c.remove(ctx, service)
 
-	cmd := exec.Command(
+	cmd := exec.CommandContext(ctx,
 		"security",
 		"add-generic-password",
 		"-a", currentUser(),
@@ -69,13 +72,13 @@ func (c Client) Set(service, value string) error {
 
 // Delete removes the keychain entry for the given service key.
 // Returns ErrNotFound if the entry does not exist.
-func (c Client) Delete(service string) error {
-	return c.remove(service)
+func (c Client) Delete(ctx context.Context, service string) error {
+	return c.remove(ctx, service)
 }
 
 // remove is the internal implementation for deleting a keychain entry.
-func (Client) remove(service string) error {
-	cmd := exec.Command(
+func (Client) remove(ctx context.Context, service string) error {
+	cmd := exec.CommandContext(ctx,
 		"security",
 		"delete-generic-password",
 		"-a", currentUser(),
