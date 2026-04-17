@@ -100,18 +100,16 @@ func (c *Client) Delete(ctx context.Context, key string) error {
 // EnsureVault creates the configured vault in 1Password if it does not already
 // exist. Returns (true, nil) when the vault was newly created, (false, nil)
 // when it already existed, or (false, err) on failure.
+//
+// Existence is checked with `op vault get <name>` (exit 0 = exists) rather
+// than by parsing `op vault list` output. The list-and-parse approach broke
+// silently when the op CLI emitted JSON in a format the parser did not expect,
+// causing a new duplicate vault to be created on every store call.
 func (c *Client) EnsureVault(ctx context.Context) (bool, error) {
-	cmd := exec.CommandContext(ctx, "op", "vault", "list", "--format", "json")
-
-	out, err := cmd.Output()
-	if err != nil {
-		return false, fmt.Errorf("1password list vaults: %w", err)
-	}
-
-	for _, name := range ParseVaultNames(string(out)) {
-		if strings.EqualFold(name, c.Vault) {
-			return false, nil // vault already exists
-		}
+	// `op vault get <name>` exits 0 when the vault exists, non-zero otherwise.
+	// No output parsing required.
+	if exec.CommandContext(ctx, "op", "vault", "get", c.Vault).Run() == nil {
+		return false, nil // vault already exists
 	}
 
 	// Vault not found — create it.
