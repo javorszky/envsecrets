@@ -1,6 +1,9 @@
 # envsecrets - File Index
 
-Codebase table of contents for quick navigation. Consult this before scanning the repo.
+Codebase table of contents and API reference. Consult this before scanning the repo.
+After any code change, update the relevant section(s) below to keep signatures and descriptions current.
+
+---
 
 ## Project Root
 
@@ -10,82 +13,258 @@ Codebase table of contents for quick navigation. Consult this before scanning th
 | `go.mod` | Module `github.com/javorszky/envsecrets`, Go 1.26.2. Depends on `spf13/cobra`, `spf13/viper`, `stretchr/testify` (test). |
 | `go.sum` | Dependency checksums. |
 | `LICENSE` | MIT license. |
-| `README.md` | User-facing documentation: installation, usage, architecture. |
+| `README.md` | User-facing documentation: why, installation, usage, architecture. |
 | `.gitignore` | Ignores binary, IDE files, `.env` files (except `.env.tpl`), coverage output. |
 | `.golangci.yml` | golangci-lint v2 config. Standard linters + `gofmt`. |
 | `Makefile` | Local dev commands: `build`, `lint`, `test`, `vet`, `fmt`, `govulncheck`, `check` (runs all). |
 | `renovate.json` | Renovate config. Groups Go minor/patch deps and GitHub Actions updates. |
 | `lefthook.yml` | Lefthook pre-commit hooks: format check (`gofmt -l`), lint (`golangci-lint`), test (`go test -race`). |
 
-## `.github/workflows/` - CI
+---
 
-| File | Triggers | Jobs | Description |
-|------|----------|------|-------------|
-| `ci.yml` | `pull_request`, `merge_group` | **lint** (golangci-lint incl. staticcheck, govet, gofmt), **test** (`go test -race`), **govulncheck** | CI pipeline. All three jobs run in parallel. |
+## `.github/workflows/` — CI
 
-## `cmd/` - CLI Commands (Cobra)
+| File | Triggers | Jobs |
+|------|----------|------|
+| `ci.yml` | `pull_request`, `merge_group` | **lint** (golangci-lint incl. staticcheck, govet, gofmt), **test** (`go test -race`), **govulncheck** — all run in parallel |
+
+---
+
+## `cmd/` — CLI Commands (Cobra)
 
 All commands share a package-level `cfg *config.Config` populated by `initConfig()` (registered via `cobra.OnInitialize` in `root.go`). No command imports viper directly.
 
-| File | Command | Args / Flags | Description |
-|------|---------|-------------|-------------|
-| `root.go` | (root) | `--vault` (persistent), `--op-vault` (persistent), `--config` (persistent) | Root command setup. Exports `Execute()`. Calls `config.Load(configFile)` in `initConfig()`, then applies CLI flag overrides to the returned `*config.Config`. Stores result in package-level `cfg`. |
-| `config.go` | `config` | none | Parent command for configuration subcommands. |
-| `config_init.go` | `config init` | none | Writes `~/.config/envsecrets.toml` with defaults and inline documentation. Uses `cfg.FilePath`. Errors if file already exists. Prints a tip recommending a dedicated `op_vault`. |
-| `config_show.go` | `config show` | none | Prints all config options, current values, and source (`flag` / `env` / `config file` / `default`) from `cfg.Sources`. Shows both `vault` and `op_vault`. |
-| `store.go` | `store <key> <value>` | 2 positional | Writes a secret to both backends via `Manager.Set()`. Uses `cfg.Vault` (keychain) and `cfg.OpVault` (1Password). |
-| `fetch.go` | `fetch <key>` | 1 positional | Reads a secret via `Manager.Get()`. Prints raw value to stdout (no newline). Uses `cfg.Vault` and `cfg.OpVault`. |
-| `update.go` | `update <key> <value>` | 2 positional | Semantic alias for store. Calls `Manager.Update()`. Uses `cfg.Vault` and `cfg.OpVault`. |
-| `delete.go` | `delete <key>` | 1 positional, `--force`/`-f` | Deletes from both backends. Prompts for confirmation unless `--force`. Uses `cfg.Vault` and `cfg.OpVault`. |
-| `sync.go` | `sync` | none | Pulls all items from the 1Password vault into Keychain. Reports count. Uses `cfg.Vault` and `cfg.OpVault`. |
-| `gen_env.go` | `gen-env` | `--template` (default `.env.tpl` → `$ENVSECRETS_TEMPLATE` → config file), `--output` (default `.env` → `$ENVSECRETS_OUTPUT` → config file) | Resolves a template file: `secret:` values are fetched via `Manager.Get()`, other lines copied verbatim. Uses `cfg.Vault`, `cfg.OpVault`, `cfg.Template`, `cfg.Output`. |
+### Package variables (`root.go`)
 
-## `internal/config/` - Configuration
+| Variable | Type | Description |
+|----------|------|-------------|
+| `configFile` | `string` | Value of `--config` flag |
+| `vaultFlag` | `string` | Value of `--vault` flag |
+| `opVaultFlag` | `string` | Value of `--op-vault` flag |
+| `cfg` | `*config.Config` | Fully resolved config; set by `initConfig()` before every command |
 
-| File | Key Exports | Description |
-|------|-------------|-------------|
-| `config.go` | `Config` struct (`Vault`, `OpVault`, `Template`, `Output`, `FilePath`, `FileFound`, `Sources`), `Sources` struct, `Load(configFlagValue string) *Config` | Single home for all viper logic. `Load` resolves config file path (`--config` flag → `$ENVSECRETS_CONFIG` → `~/.config/envsecrets.toml`), binds env vars (`ENVSECRETS_VAULT`, `ENVSECRETS_OP_VAULT`, `ENVSECRETS_TEMPLATE`, `ENVSECRETS_OUTPUT`), sets defaults, reads the TOML file, and returns a fully-populated `*Config`. `Vault` (default `"envsecrets"`) names the local keychain file; `OpVault` (default `"Envsecrets"`) names the 1Password vault. Source attribution is set on `Config.Sources`; flag overrides are applied by the cmd layer after Load returns. Viper is imported **only** in this package. |
-| `config_test.go` | — | `package config_test`. Table-driven tests for `Load()`: default values, config-file values, env-var overrides (including `ENVSECRETS_OP_VAULT`), env-beats-file precedence, `FileFound`/`FilePath` state, and `ENVSECRETS_CONFIG` path resolution. Uses `t.Setenv` and `t.TempDir` to stay hermetic. |
+### `Execute() ` — `root.go`
 
-## `internal/secrets/` - Orchestration Layer
+Exported entry point called by `main`. Runs the root Cobra command; exits with code 1 on error.
 
-| File | Key Exports | Description |
-|------|-------------|-------------|
-| `secrets.go` | `SecretStore` interface, `Manager` struct, `New(keychainVault, opVault)`, `NewWithBackends(kc, op SecretStore)`, `Get(ctx, key)`, `Set(ctx, key, value)`, `Update(ctx, key, value)`, `Delete(ctx, key)`, `Sync(ctx)`, `WithWarningWriter(w)` | Coordinates two `SecretStore` backends (keychain and 1Password) through a single unified interface. `New(keychainVault, opVault)` wires up `keychain.New(keychainVault)` and `onepassword.New(opVault)` independently. `SecretStore` includes `EnsureVault(ctx) (bool, error)` — both backends implement it; `Manager.Set` calls it on both (kc failure is fatal, op failure is a warning). All `Manager` methods accept a `context.Context`. Read path: Keychain first, fallback to 1Password (caches result). Write path: Keychain must succeed, 1Password is best-effort. Delete: attempts both, combines errors via `errors.Join()`. |
-| `secrets_test.go` | — | `package secrets_test`. Table-driven tests for all `Manager` methods using a unified in-memory `stubStore` implementing both `SecretStore` and `VaultEnsurer`. Each stub gets a `notFoundErr` sentinel (`keychain.ErrNotFound` or `onepassword.ErrNotFound`). Covers every branch including vault auto-creation and vault-ensure failures. |
+### `initConfig()` — `root.go` (unexported)
 
-## `internal/keychain/` - macOS Keychain Backend
+Calls `config.Load(configFile)`, then applies any `--vault` / `--op-vault` / `--template` / `--output` flag overrides to `cfg` and `cfg.Sources`. Called automatically by `cobra.OnInitialize` before any command's `RunE`.
 
-Uses a **dedicated keychain file per vault** at `~/.local/share/envsecrets/<vault>.keychain` instead of the login keychain. The file's password is auto-generated on first use and stored in the login keychain under service `envsecrets-keychain-<vault>`.
+### Command files
 
-| File | Key Exports | Description |
-|------|-------------|-------------|
-| `keychain.go` | `Client` struct (`vault`, `keychainPath` fields), `New(vault)`, `(*Client).Available(ctx)`, `(*Client).EnsureVault(ctx)`, `(*Client).Get(ctx, service)`, `(*Client).Set(ctx, service, value)`, `(*Client).Delete(ctx, service)`, `(*Client).List(ctx)`, `ParseDumpServices(output)`, `ErrNotFound` | Wraps macOS `security` CLI with a dedicated keychain file. `New(vault)` returns a `*Client`. `EnsureVault` creates the keychain file if absent or unlocks it if present. All other methods call the private `ensure(ctx)` first to create or unlock the keychain file. `Available` checks for the `security` binary. `List` parses `security dump-keychain` output via `ParseDumpServices`. `Set` does delete-then-add via the private `remove` helper. Satisfies `secrets.SecretStore`. |
-| `keychain_test.go` | — | `package keychain_test`. Table-driven tests for `ParseDumpServices`: empty input, single item, multiple items, duplicates, special characters, non-matching lines. |
+| File | Command | Flags | Description |
+|------|---------|-------|-------------|
+| `config.go` | `config` | — | Parent command; groups config subcommands |
+| `config_init.go` | `config init` | — | Writes `~/.config/envsecrets.toml` from `defaultConfigContent`. Errors if file already exists. Prints tip about `op_vault`. |
+| `config_show.go` | `config show` | — | Prints all config options, their current values, and source (`flag` / `env` / `config file` / `default`) from `cfg.Sources`. |
+| `store.go` | `store <key> <value>` | — | Writes a secret via `Manager.Set()`. Uses `cfg.Vault` + `cfg.OpVault`. |
+| `fetch.go` | `fetch <key>` | — | Reads a secret via `Manager.Get()`. Prints raw value to stdout (no newline). |
+| `update.go` | `update <key> <value>` | — | Semantic alias for `store`; calls `Manager.Update()`. |
+| `delete.go` | `delete <key>` | `--force` / `-f` | Deletes from both backends via `Manager.Delete()`. Prompts for confirmation unless `--force`. |
+| `sync.go` | `sync` | — | Pulls all items from the 1Password vault into Keychain via `Manager.Sync()`. Reports count. |
+| `gen_env.go` | `gen-env` | `--template` (default `.env.tpl`), `--output` (default `.env`) | Resolves `secret:` prefixed values in a template file via `Manager.Get()`; copies other lines verbatim. |
 
-## `internal/onepassword/` - 1Password Backend
+---
 
-| File | Key Exports | Description |
-|------|-------------|-------------|
-| `onepassword.go` | `Client` struct, `New(vault)`, `(*Client).Available(ctx)`, `(*Client).EnsureVault(ctx)`, `(*Client).Get(ctx, key)`, `(*Client).Set(ctx, key, value)`, `(*Client).Delete(ctx, key)`, `(*Client).List(ctx)`, `ParseVaultNames(json)`, `ParseTitles(json)`, `ErrNotFound`, `ErrUnavailable` | Wraps 1Password `op` CLI. All methods accept a `context.Context` and use `exec.CommandContext`. `EnsureVault` lists vaults via `op vault list` and calls `op vault create` if the configured vault is absent — satisfies `secrets.VaultEnsurer`. `ParseVaultNames` and `ParseTitles` are exported for `_test` package access. `Set` tries edit-first, falls back to create. |
-| `onepassword_test.go` | — | `package onepassword_test`. Table-driven tests for `ParseTitles` and `ParseVaultNames`: empty input, single item, multiple items, special characters, no matching fields. |
+## `internal/config/` — Configuration
+
+Single home for all viper logic. Viper is imported **only** in this package.
+
+### `Config` struct
+
+Governs all resolved runtime configuration. The `cmd` layer reads from this after `Load` returns and after applying flag overrides.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Vault` | `string` | Name of the dedicated local keychain file. File lives at `~/.local/share/envsecrets/<Vault>.keychain`. Default: `"envsecrets"`. |
+| `OpVault` | `string` | 1Password vault name where secrets are stored. Default: `"Envsecrets"`. |
+| `Template` | `string` | Path to the `gen-env` template file. Default: `".env.tpl"`. |
+| `Output` | `string` | Path to the `gen-env` output file. Default: `".env"`. |
+| `FilePath` | `string` | Resolved path to the config file (may not exist on disk). |
+| `FileFound` | `bool` | True when the config file was found and successfully read. |
+| `Sources` | `Sources` | Per-field attribution of where each value came from. |
+
+### `Sources` struct
+
+Records the origin of each `Config` field. Used by `config show`.
+
+| Field | Type | Possible values |
+|-------|------|-----------------|
+| `Vault` | `string` | `"default"`, `"config file"`, `"env ($ENVSECRETS_VAULT)"`, `"flag (--vault)"` |
+| `OpVault` | `string` | `"default"`, `"config file"`, `"env ($ENVSECRETS_OP_VAULT)"`, `"flag (--op-vault)"` |
+| `Template` | `string` | `"default"`, `"config file"`, `"env ($ENVSECRETS_TEMPLATE)"`, `"flag (--template)"` |
+| `Output` | `string` | `"default"`, `"config file"`, `"env ($ENVSECRETS_OUTPUT)"`, `"flag (--output)"` |
+
+### Functions
+
+| Signature | Description |
+|-----------|-------------|
+| `Load(configFlagValue string) *Config` | Resolves the config file path (`--config` flag → `$ENVSECRETS_CONFIG` → `~/.config/envsecrets.toml`), binds env vars, sets defaults, reads the TOML file, attributes sources, and returns a fully-populated `*Config`. Does **not** apply flag overrides — the `cmd` layer does that. |
+| `resolvePath(configFlagValue string) string` *(unexported)* | Returns the config file path to use, honouring `--config` flag → `$ENVSECRETS_CONFIG` → default. |
+| `sourceOf(key, envVar string, fileKeys map[string]bool) string` *(unexported)* | Returns `"default"`, `"config file"`, or `"env ($VAR)"` for a config key based on whether the env var is set or the key appears in the file. |
+
+---
+
+## `internal/keychain/` — macOS Keychain Backend
+
+Each vault gets a dedicated keychain file at `~/.local/share/envsecrets/<vault>.keychain`. The file's password is auto-generated on first use and stored in the login keychain under service `envsecrets-keychain-<vault>`, and also written to a human-readable access-details file at `~/Documents/envsecrets-<vault>-keychain-access.txt`.
+
+### Errors
+
+| Name | Description |
+|------|-------------|
+| `ErrNotFound` | Returned when a keychain entry does not exist (wraps exit code 44 from `security`). |
+
+### `Client` struct
+
+Governs all operations against a single named keychain file.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `vault` *(unexported)* | `string` | Vault name; determines the keychain file path and login-keychain service name. |
+| `keychainPath` *(unexported)* | `string` | Absolute path to the `.keychain` file (`~/.local/share/envsecrets/<vault>.keychain`). |
+
+### Exported functions and methods
+
+| Signature | Description |
+|-----------|-------------|
+| `New(vault string) *Client` | Constructs a `Client`; sets `keychainPath` to `~/.local/share/envsecrets/<vault>.keychain`. |
+| `(c *Client) Available(_ context.Context) bool` | Returns `true` if the `security` binary is on `$PATH`. |
+| `(c *Client) EnsureVault(ctx context.Context) (bool, error)` | Creates the keychain file if absent (`true, nil`), or unlocks it if present (`false, nil`). Falls back to the access file if the login-keychain entry is missing. |
+| `(c *Client) Get(ctx context.Context, service string) (string, error)` | Reads the generic-password entry for `service`; returns `ErrNotFound` on miss. Calls `ensure` first. |
+| `(c *Client) Set(ctx context.Context, service, value string) error` | Upserts a generic-password entry (delete-then-add to avoid duplicates). Calls `ensure` first. |
+| `(c *Client) Delete(ctx context.Context, service string) error` | Deletes the generic-password entry; returns `ErrNotFound` if absent. Calls `ensure` first. |
+| `(c *Client) List(ctx context.Context) ([]string, error)` | Returns all service names in the keychain via `security dump-keychain` + `ParseDumpServices`. Calls `ensure` first. |
+| `ParseDumpServices(output string) []string` | Extracts unique service names from `security dump-keychain` output. Exported for testability. |
+
+### Key unexported methods
+
+| Signature | Description |
+|-----------|-------------|
+| `(c *Client) ensure(ctx context.Context) error` | Creates or unlocks the keychain file. Called at the top of every public method that accesses the file. |
+| `(c *Client) createKeychainFile(ctx context.Context) error` | Generates a random password, creates the keychain file (`security create-keychain`), disables auto-lock, stores the password in the login keychain, and writes the access-details file. |
+| `(c *Client) unlockKeychainFile(ctx context.Context) error` | Reads the password via `readKeychainPassword` and calls `security unlock-keychain`. |
+| `(c *Client) readKeychainPassword(ctx context.Context) (string, error)` | Primary: reads from the login keychain. Fallback: reads from the access file and restores the login-keychain entry automatically. |
+| `(c *Client) storeKeychainPassword(ctx context.Context, password string) error` | Upserts (`-U`) the password into the login keychain under service `envsecrets-keychain-<vault>`. |
+| `(c *Client) accessFilePath() string` | Returns `~/Documents/envsecrets-<vault>-keychain-access.txt`. |
+| `(c *Client) writeAccessFile(password string) error` | Writes a human-readable file (mode 0600) containing the keychain path, password, and Keychain Access / terminal recovery instructions. Prints the path to stderr. |
+| `(c *Client) readAccessFile() (string, error)` | Parses the `password: <hex>` line from the machine-readable section of the access file. |
+| `(c *Client) remove(ctx context.Context, service string) error` | Low-level delete of a single generic-password entry; used by `Delete` and `Set`. |
+| `generatePassword() (string, error)` | Returns a 64-character hex string from 32 random bytes. |
+| `currentUser() string` | Returns `$USER`, falling back to `$LOGNAME`. |
+
+---
+
+## `internal/onepassword/` — 1Password Backend
+
+Wraps the `op` CLI. All secrets are stored as Login items; the item title is the key and the value is in the password field.
+
+### Errors
+
+| Name | Description |
+|------|-------------|
+| `ErrNotFound` | Returned when a 1Password item does not exist. |
+| `ErrUnavailable` | Returned when the `op` binary is absent or the local 1Password app is not running / signed in. |
+
+### `Client` struct
+
+Governs all operations against a single named 1Password vault.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Vault` | `string` | 1Password vault name or ID (e.g. `"Envsecrets"`, `"Work"`). |
+
+### Exported functions and methods
+
+| Signature | Description |
+|-----------|-------------|
+| `New(vault string) *Client` | Constructs a `Client` for the given vault. |
+| `(c *Client) Available(ctx context.Context) bool` | Returns `true` if `op` is on `$PATH` and `op account list` exits 0 (app running and signed in). |
+| `(c *Client) EnsureVault(ctx context.Context) (bool, error)` | Lists vaults via `op vault list --format json`. Creates the vault if absent (`true, nil`). Also writes an access-details file to `~/Documents`. |
+| `(c *Client) Get(ctx context.Context, key string) (string, error)` | Reads `op://<Vault>/<key>/password`. Returns `ErrNotFound` or `ErrUnavailable` as appropriate. |
+| `(c *Client) Set(ctx context.Context, key, value string) error` | Edit-first, then create if `ErrNotFound`. |
+| `(c *Client) Delete(ctx context.Context, key string) error` | Removes the Login item whose title is `key`. |
+| `(c *Client) List(ctx context.Context) ([]string, error)` | Returns all item titles via `op item list --vault <Vault> --format json` + `ParseTitles`. |
+| `ParseVaultNames(jsonStr string) []string` | Extracts `"name"` fields from `op vault list` JSON output. Exported for testability. |
+| `ParseTitles(jsonStr string) ([]string, error)` | Extracts `"title"` fields from `op item list` JSON output. Exported for testability. |
+
+### Key unexported methods
+
+| Signature | Description |
+|-----------|-------------|
+| `(c *Client) create(ctx context.Context, key, value string) error` | Creates a new Login item via `op item create`. |
+| `(c *Client) edit(ctx context.Context, key, value string) error` | Updates an existing Login item via `op item edit`. |
+| `(c *Client) classifyError(key string, err error) error` | Delegates to `classifyErrorWithOutput` with nil output. |
+| `(c *Client) classifyErrorWithOutput(key string, err error, out []byte) error` | Maps op CLI stderr output to `ErrNotFound`, `ErrUnavailable`, or a generic error. |
+| `(c *Client) accessFilePath() string` | Returns `~/Documents/envsecrets-<Vault>-1password-access.txt`. |
+| `(c *Client) writeAccessFile() error` | Writes a human-readable file (mode 0600) with vault name and instructions for accessing secrets directly in 1Password. Prints the path to stderr. |
+
+---
+
+## `internal/secrets/` — Orchestration Layer
+
+Coordinates reads and writes across the two backends through a single unified interface. Neither backend is imported directly by `cmd/`; all access goes through `Manager`.
+
+### `SecretStore` interface
+
+Both `*keychain.Client` and `*onepassword.Client` implement this interface.
+
+| Method signature | Description |
+|-----------------|-------------|
+| `Available(ctx context.Context) bool` | Reports whether the backend is reachable. |
+| `Get(ctx context.Context, key string) (string, error)` | Retrieves a secret by key. |
+| `Set(ctx context.Context, key, value string) error` | Stores or updates a secret. |
+| `Delete(ctx context.Context, key string) error` | Removes a secret. |
+| `List(ctx context.Context) ([]string, error)` | Returns all keys held by the backend. |
+| `EnsureVault(ctx context.Context) (bool, error)` | Creates the backend vault if absent, or unlocks/verifies it if present. Returns `(true, nil)` when newly created. |
+
+### `Manager` struct
+
+Governs the combined read/write/delete/sync logic across the two `SecretStore` backends.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `kc` *(unexported)* | `SecretStore` | Keychain backend. |
+| `op` *(unexported)* | `SecretStore` | 1Password backend. |
+| `warn` *(unexported)* | `io.Writer` | Destination for non-fatal warnings (default: `os.Stderr`). |
+
+### Exported functions and methods
+
+| Signature | Description |
+|-----------|-------------|
+| `New(keychainVault, opVault string) *Manager` | Wires up `keychain.New(keychainVault)` and `onepassword.New(opVault)` as backends. |
+| `NewWithBackends(kc, op SecretStore) *Manager` | Accepts arbitrary `SecretStore` implementations; used in tests with `stubStore`. |
+| `(m *Manager) WithWarningWriter(w io.Writer) *Manager` | Overrides the warning writer; returns `m` for chaining. |
+| `(m *Manager) Get(ctx context.Context, key string) (string, error)` | Keychain first. On miss, tries 1Password (if available) and caches the result back into Keychain. |
+| `(m *Manager) Set(ctx context.Context, key, value string) error` | Calls `kc.EnsureVault` (fatal on error), writes to Keychain (fatal on error), then calls `op.EnsureVault` + `op.Set` (both non-fatal; warnings only). |
+| `(m *Manager) Update(ctx context.Context, key, value string) error` | Semantic alias for `Set`; the distinction is at the CLI layer only. |
+| `(m *Manager) Delete(ctx context.Context, key string) error` | Attempts both backends; collects errors via `errors.Join`; `ErrNotFound` on either side is silently ignored. |
+| `(m *Manager) Sync(ctx context.Context) (synced int, err error)` | Lists all keys from 1Password, fetches each, writes to Keychain. Returns count of successfully written keys. |
+
+---
 
 ## Architecture
 
 ```
-main.go -> cmd.Execute()
-             |
-    cmd/{store,fetch,update,delete,sync,gen_env}.go
-             |
-    internal/secrets/secrets.go  (Manager)
-           /              \
-  internal/keychain/    internal/onepassword/
-  keychain.go           onepassword.go
-      |                       |
-  macOS `security`        1Password `op`
+main.go → cmd.Execute()
+              │
+   cmd/{store,fetch,update,delete,sync,gen_env}.go
+              │
+   internal/secrets/secrets.go  (Manager)
+          /              \
+internal/keychain/    internal/onepassword/
+keychain.go           onepassword.go
+     │                       │
+macOS `security`         1Password `op`
 ```
 
-**Read path:** Keychain -> miss -> 1Password -> cache to Keychain -> return
-**Write path:** Keychain (must succeed) -> 1Password (best-effort)
-**Sync path:** 1Password `List()` -> fetch each -> write to Keychain
-**Template path:** scan `.tpl` line-by-line -> resolve `secret:` prefixed values -> write output
+**Read path:** Keychain → miss → 1Password → cache to Keychain → return  
+**Write path:** `kc.EnsureVault` → Keychain (must succeed) → `op.EnsureVault` → 1Password (best-effort)  
+**Delete path:** Keychain + 1Password attempted independently; errors joined  
+**Sync path:** 1Password `List()` → fetch each → write to Keychain  
+**Template path:** scan `.tpl` line-by-line → resolve `secret:` prefixed values → write output  
+
+**Access-details files** (written once at vault creation):  
+- Keychain: `~/Documents/envsecrets-<vault>-keychain-access.txt` — contains the keychain password  
+- 1Password: `~/Documents/envsecrets-<vault>-1password-access.txt` — contains the vault name and access instructions  

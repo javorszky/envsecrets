@@ -4,9 +4,20 @@ A CLI tool for managing environment secrets with dual-backend storage: macOS Key
 
 ## INDEX.md Workflow
 
-When updating code, ALWAYS reference the `INDEX.md` file to help you find relevant files prior to doing full scans and updating code.
+`INDEX.md` is the authoritative code map and API reference. It must stay in sync with the source at all times.
 
-After making code changes ALWAYS update the `INDEX.md` to reflect any new changes that need to be mentioned there.
+**Before making changes:** consult `INDEX.md` to locate relevant files and understand existing signatures. Prefer it over a full repo scan.
+
+**After every code change:** update the relevant section(s) of `INDEX.md` to reflect:
+
+- New, renamed, or removed files
+- New, renamed, or removed structs — including every field (name, type, one-line purpose)
+- New, renamed, or removed interfaces — including every method signature
+- New, renamed, or removed exported **or** key unexported functions/methods — including the full signature and a one-line description of what it does and what it governs
+- Changed default values, changed error names, changed flag names
+- Any change to the Architecture section's data-flow description
+
+The level of detail required in `INDEX.md` is: **someone reading only `INDEX.md` should be able to call any function or implement any interface without opening a source file.**
 
 ## Planning for Smaller Models
 
