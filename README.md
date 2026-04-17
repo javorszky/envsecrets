@@ -2,6 +2,40 @@
 
 A lightweight macOS CLI for storing and retrieving secrets as environment variables. Think of it as a poor-man's Vault — secrets live in your **macOS Keychain** for fast offline access, with **1Password** as an optional durable backup and cross-machine sync layer.
 
+## Why
+
+Most developers store secrets directly in shell profiles or project files:
+
+```sh
+# ~/.zshrc or ~/.bashrc
+export AWS_ACCESS_KEY_ID="AKIA..."
+export DATABASE_URL="postgres://user:s3cr3t@prod-host/db"
+
+# .env
+STRIPE_SECRET_KEY=sk_live_...
+GITHUB_TOKEN=ghp_...
+```
+
+This is convenient but risky. A single accidental screen share, a `git add .` with the wrong `.gitignore`, or a curious pair-programming partner is all it takes to expose credentials that need immediate rotation.
+
+envsecrets moves the secrets out of those files entirely. Store each secret once:
+
+```sh
+envsecrets store DATABASE_URL "postgres://user:s3cr3t@prod-host/db"
+```
+
+Then reference it by name wherever you'd normally paste the value:
+
+```sh
+# ~/.zshrc or ~/.bashrc
+export DATABASE_URL=$(envsecrets fetch DATABASE_URL)
+
+# .env.tpl  (committed to git — contains no real secrets)
+DATABASE_URL=secret:DATABASE_URL
+```
+
+Now your shell profiles, `.env` files, and repositories contain only `envsecrets fetch` calls. Someone who sees your screen, clones your repo, or reads your dotfiles sees the command — not the secret. Your credentials stay locked inside macOS Keychain and, optionally, your 1Password vault.
+
 ## How it works
 
 ```
