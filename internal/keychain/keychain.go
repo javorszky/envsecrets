@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // ErrNotFound is returned when a keychain entry does not exist.
@@ -165,6 +166,10 @@ func ParseDumpServices(output string) []string {
 // EnsureVault creates the dedicated keychain file if it does not already exist,
 // or unlocks it if it does. Returns (true, nil) when the file was newly
 // created, (false, nil) when it already existed, or (false, err) on failure.
+//
+// If the login-keychain entry holding the file's password is ever lost,
+// readKeychainPassword falls back to the access-details file written to
+// ~/Documents at creation time and restores the entry automatically.
 func (c *Client) EnsureVault(ctx context.Context) (bool, error) {
 	if _, err := os.Stat(c.keychainPath); errors.Is(err, os.ErrNotExist) {
 		if createErr := c.createKeychainFile(ctx); createErr != nil {
@@ -192,9 +197,10 @@ func (c *Client) EnsureVault(ctx context.Context) (bool, error) {
 //  3. security create-keychain -p <pw> <path>
 //  4. security set-keychain-settings <path>   (no auto-lock)
 //  5. Store password in login keychain
+//  6. Write access-details file to ~/Documents
 //
 // Subsequent use (file exists):
-//  1. Read password from login keychain
+//  1. Read password from login keychain (falls back to ~/Documents access file)
 //  2. security unlock-keychain -p <pw> <path>
 func (c *Client) ensure(ctx context.Context) error {
 	if _, err := os.Stat(c.keychainPath); errors.Is(err, os.ErrNotExist) {
@@ -243,6 +249,14 @@ func (c *Client) createKeychainFile(ctx context.Context) error {
 		return fmt.Errorf("storing keychain password: %w", err)
 	}
 
+	// Write a human-readable access-details file to ~/Documents so the user
+	// always has a copy of the password. This is best-effort: a failure here
+	// does not prevent the keychain from working.
+	if err := c.writeAccessFile(password); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr,
+			"warning: could not write keychain access file: %v\n", err)
+	}
+
 	return nil
 }
 
@@ -267,13 +281,16 @@ func (c *Client) unlockKeychainFile(ctx context.Context) error {
 }
 
 // storeKeychainPassword saves the keychain file's password into the user's
-// login keychain under service "envsecrets-keychain-<vault>".
+// login keychain under service "envsecrets-keychain-<vault>". The -U flag
+// makes add-generic-password act as an upsert so a stale entry from a
+// previous installation never causes a "duplicate item" failure.
 func (c *Client) storeKeychainPassword(ctx context.Context, password string) error {
 	svc := "envsecrets-keychain-" + c.vault
 
 	cmd := exec.CommandContext(ctx,
 		"security",
 		"add-generic-password",
+		"-U", // update existing entry if present
 		"-a", currentUser(),
 		"-s", svc,
 		"-w", password,
@@ -286,8 +303,14 @@ func (c *Client) storeKeychainPassword(ctx context.Context, password string) err
 	return nil
 }
 
-// readKeychainPassword retrieves the keychain file's password from the login
-// keychain.
+// readKeychainPassword retrieves the keychain file's password.
+//
+// Primary source: the login keychain (service "envsecrets-keychain-<vault>").
+//
+// Fallback: if that entry is missing (e.g. after a machine migration or a
+// keychain reset), the access-details file written to ~/Documents at creation
+// time is read instead.  The entry is then restored in the login keychain so
+// subsequent calls are fast again.
 func (c *Client) readKeychainPassword(ctx context.Context) (string, error) {
 	svc := "envsecrets-keychain-" + c.vault
 
@@ -300,11 +323,107 @@ func (c *Client) readKeychainPassword(ctx context.Context) (string, error) {
 	)
 
 	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("reading password for %q: %w", svc, err)
+	if err == nil {
+		return strings.TrimRight(string(out), "\n"), nil
 	}
 
-	return strings.TrimRight(string(out), "\n"), nil
+	// Login-keychain entry missing — try the access-details file.
+	password, fileErr := c.readAccessFile()
+	if fileErr != nil {
+		return "", fmt.Errorf(
+			"reading password for %q from login keychain (%w) and from access file %s (%v)",
+			svc, err, c.accessFilePath(), fileErr,
+		)
+	}
+
+	// Restore the login-keychain entry so next time is seamless.
+	_ = c.storeKeychainPassword(ctx, password)
+
+	return password, nil
+}
+
+// --- access-details file -----------------------------------------------------
+
+// accessFilePath returns the path of the access-details file created when the
+// keychain vault is first set up. It lives in ~/Documents so the user can
+// always find the password even if the login-keychain entry is lost.
+func (c *Client) accessFilePath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, "Documents", "envsecrets-"+c.vault+"-keychain-access.txt")
+}
+
+// writeAccessFile writes a plaintext file to ~/Documents containing the
+// keychain password and instructions for opening it without the CLI.
+// The file is 0600 (owner-read/write only).
+func (c *Client) writeAccessFile(password string) error {
+	path := c.accessFilePath()
+
+	content := fmt.Sprintf(`envsecrets Keychain Access Details
+===================================
+Created: %s
+
+Vault name    : %s
+Keychain file : %s
+
+KEEP THIS FILE SAFE — it contains the password to your envsecrets keychain.
+Anyone who can read this file can unlock the keychain and read your secrets.
+
+To open the keychain in Keychain Access (GUI):
+  1. Open Keychain Access  (Applications > Utilities > Keychain Access)
+  2. File > Add Keychain...
+  3. Select the keychain file shown above
+  4. Enter the password when prompted (see below)
+
+To unlock and inspect the keychain from the terminal:
+  security unlock-keychain -p '<password>' '%s'
+
+The envsecrets CLI stores this password in your login keychain for everyday
+use. If that entry is ever lost, envsecrets will read it from this file and
+restore the login-keychain entry automatically — no manual steps needed.
+
+# --- do not edit below this line ---
+vault: %s
+keychain-path: %s
+password: %s
+`,
+		time.Now().Format("2006-01-02"),
+		c.vault,
+		c.keychainPath,
+		c.keychainPath,
+		c.vault,
+		c.keychainPath,
+		password,
+	)
+
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		return fmt.Errorf("writing access file: %w", err)
+	}
+
+	_, _ = fmt.Fprintf(os.Stderr,
+		"info: keychain access details written to %s\n"+
+			"      Keep this file safe — it contains your keychain password.\n",
+		path,
+	)
+
+	return nil
+}
+
+// readAccessFile parses the keychain password from the access-details file.
+// The file must contain a line of the form "password: <hex>" in its
+// machine-readable section (below the "# --- do not edit" separator).
+func (c *Client) readAccessFile() (string, error) {
+	data, err := os.ReadFile(c.accessFilePath())
+	if err != nil {
+		return "", err
+	}
+
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "password: ") {
+			return strings.TrimPrefix(line, "password: "), nil
+		}
+	}
+
+	return "", errors.New("password field not found in access file")
 }
 
 // --- private helpers ---------------------------------------------------------
