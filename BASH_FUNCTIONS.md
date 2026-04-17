@@ -80,9 +80,7 @@ If 1Password is available and the target vault does not exist, it is created aut
 | Variable | Default | Purpose |
 |---|---|---|
 | `ENVSECRETS_VAULT` | `envsecrets` | Keychain file name (without `.keychain`) |
-| `ENVSECRETS_OP_VAULT` | `Private` | 1Password vault name |
-
-1Password items are always stored under the title `envsecrets.<KEY>` — regardless of which vault is used — to prevent collisions with existing items in a shared vault such as `Private`.
+| `ENVSECRETS_OP_VAULT` | `Envsecrets` | 1Password vault name |
 
 ### Functions
 
@@ -93,10 +91,7 @@ Paste into `~/.zshrc` or `~/.bashrc`:
 #
 # Configuration (set in your shell profile before sourcing these functions):
 #   export ENVSECRETS_VAULT=envsecrets      # keychain file name (no .keychain extension)
-#   export ENVSECRETS_OP_VAULT=Private      # 1Password vault name
-#
-# 1Password items are stored as "envsecrets.<KEY>" to avoid collisions with
-# existing entries in shared vaults such as Private.
+#   export ENVSECRETS_OP_VAULT=Envsecrets   # 1Password vault name
 
 # ---------------------------------------------------------------------------
 # Private helpers
@@ -201,7 +196,7 @@ _es_unlock() {
 # exist and writes the access-details file to ~/Documents. Best-effort:
 # a failure prints a warning but does not abort the calling function.
 _es_ensure_op_vault() {
-  local op_vault="${ENVSECRETS_OP_VAULT:-Private}"
+  local op_vault="${ENVSECRETS_OP_VAULT:-Envsecrets}"
 
   # Case-insensitive check, matching the binary's strings.EqualFold behaviour.
   if op vault list --format json 2>/dev/null \
@@ -271,7 +266,7 @@ es_store() {
 
   local vault="${ENVSECRETS_VAULT:-envsecrets}"
   local kc="${HOME}/.local/share/envsecrets/${vault}.keychain"
-  local op_vault="${ENVSECRETS_OP_VAULT:-Private}"
+  local op_vault="${ENVSECRETS_OP_VAULT:-Envsecrets}"
 
   # Create the keychain vault on first use; unlock it if it already exists.
   if [[ ! -f "$kc" ]]; then
@@ -285,9 +280,9 @@ es_store() {
   # 1Password is best-effort: a failure prints a warning but does not abort.
   if command -v op &>/dev/null && op account list &>/dev/null 2>&1; then
     _es_ensure_op_vault  # create vault if needed; warns on failure, does not abort
-    op item edit --vault "$op_vault" "envsecrets.${key}" "password=$value" &>/dev/null 2>&1 \
+    op item edit --vault "$op_vault" "$key" "password=$value" &>/dev/null 2>&1 \
     || op item create --category Login --vault "$op_vault" \
-         --title "envsecrets.${key}" "password=$value" &>/dev/null 2>&1 \
+         --title "$key" "password=$value" &>/dev/null 2>&1 \
     || printf 'es: warning: 1Password write failed for "%s"\n' "$key" >&2
   fi
 }
@@ -298,7 +293,7 @@ es_fetch() {
 
   local vault="${ENVSECRETS_VAULT:-envsecrets}"
   local kc="${HOME}/.local/share/envsecrets/${vault}.keychain"
-  local op_vault="${ENVSECRETS_OP_VAULT:-Private}"
+  local op_vault="${ENVSECRETS_OP_VAULT:-Envsecrets}"
 
   _es_unlock || return 1
 
@@ -311,7 +306,7 @@ es_fetch() {
 
   # Cache miss — try 1Password and write the result back into the local keychain.
   if command -v op &>/dev/null && op account list &>/dev/null 2>&1; then
-    value=$(op read "op://${op_vault}/envsecrets.${key}/password" 2>/dev/null) || {
+    value=$(op read "op://${op_vault}/${key}/password" 2>/dev/null) || {
       printf 'es: "%s" not found in keychain or 1Password\n' "$key" >&2
       return 1
     }
@@ -339,7 +334,7 @@ es_delete() {
 
   local vault="${ENVSECRETS_VAULT:-envsecrets}"
   local kc="${HOME}/.local/share/envsecrets/${vault}.keychain"
-  local op_vault="${ENVSECRETS_OP_VAULT:-Private}"
+  local op_vault="${ENVSECRETS_OP_VAULT:-Envsecrets}"
 
   _es_unlock || return 1
   security delete-generic-password -a "$USER" -s "$key" "$kc" 2>/dev/null \
@@ -347,7 +342,7 @@ es_delete() {
 
   # 1Password is best-effort.
   if command -v op &>/dev/null && op account list &>/dev/null 2>&1; then
-    op item delete --vault "$op_vault" "envsecrets.${key}" &>/dev/null 2>&1 \
+    op item delete --vault "$op_vault" "$key" &>/dev/null 2>&1 \
       || printf 'es: warning: 1Password delete failed for "%s"\n' "$key" >&2
   fi
 }
