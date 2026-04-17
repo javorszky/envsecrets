@@ -10,8 +10,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"time"
 )
 
 // ErrNotFound is returned when a 1Password item does not exist.
@@ -117,6 +120,12 @@ func (c *Client) EnsureVault(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("1password create vault %q: %w\n%s", c.Vault, createErr, createOut)
 	}
 
+	// Write an access-details file to ~/Documents. Best-effort.
+	if err := c.writeAccessFile(); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr,
+			"warning: could not write 1Password access file: %v\n", err)
+	}
+
 	return true, nil
 }
 
@@ -198,6 +207,51 @@ func (c *Client) classifyErrorWithOutput(key string, err error, out []byte) erro
 	}
 
 	return fmt.Errorf("1password op on %q: %w", key, err)
+}
+
+// --- access-details file -----------------------------------------------------
+
+// accessFilePath returns the path of the access-details file written when the
+// 1Password vault is first created.
+func (c *Client) accessFilePath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, "Documents", "envsecrets-"+c.Vault+"-1password-access.txt")
+}
+
+// writeAccessFile writes a plaintext file to ~/Documents explaining how to
+// locate the 1Password vault without the CLI.
+func (c *Client) writeAccessFile() error {
+	path := c.accessFilePath()
+
+	content := fmt.Sprintf(`envsecrets 1Password Vault Access Details
+==========================================
+Created: %s
+
+Vault name: %s
+
+Your envsecrets secrets are stored in the "%s" vault in 1Password.
+
+To access your secrets without the envsecrets CLI:
+  1. Open 1Password
+  2. Select the "%s" vault from the sidebar
+  3. Secrets are stored as Login items; the value is in the password field
+`,
+		time.Now().Format("2006-01-02"),
+		c.Vault,
+		c.Vault,
+		c.Vault,
+	)
+
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		return fmt.Errorf("writing access file: %w", err)
+	}
+
+	_, _ = fmt.Fprintf(os.Stderr,
+		"info: 1Password vault access details written to %s\n",
+		path,
+	)
+
+	return nil
 }
 
 // ParseVaultNames extracts vault names from the JSON array returned by
