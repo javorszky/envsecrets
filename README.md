@@ -236,6 +236,7 @@ Several tools solve adjacent problems. Here is where they overlap and where they
 | pass | ✅ | ❌ GPG | ❌ | ❌ | GPG-encrypted file tree. Works anywhere, syncs via git. Requires GPG key management. |
 | Doppler / Infisical | ❌ | ❌ | ❌ | ❌ | SaaS platforms with team RBAC and audit logs. Require network access; no offline path. |
 | dotenvx | ✅ | ❌ | ❌ | ❌ | Encrypts `.env` files so they are safe to commit to git. File-based, not vault-based. Cross-platform. |
+| varlock | ✅ partial | ❌ | ✅ plugin | ❌ | Schema-based config tool. Replaces `.env.example` with a typed, validated `.env.schema` safe to commit and share with AI agents. No native secret storage — pulls values at runtime from 6 provider plugins (1Password, Infisical, AWS Secrets Manager, Azure Key Vault, Google Secret Manager, Bitwarden). Adds log redaction and type-safe leak prevention. Open source. |
 
 ### What makes envsecrets different
 
