@@ -230,7 +230,7 @@ Several tools solve adjacent problems. Here is where they overlap and where they
 | `op run` / `op inject` | ❌ | ❌ | ✅ required | ✅ `op inject` | Built into the 1Password CLI. Same template idea, but always requires the 1Password app to be running. No Keychain cache. |
 | op-fast | ✅ TTL cache | ✅ login KC | ✅ required | ❌ | Caches `op` calls in the OS keychain with a TTL. Drop-in proxy for the `op` CLI. Entries expire; envsecrets keeps them indefinitely. |
 | envchain | ✅ | ✅ login KC | ❌ | ❌ | Injects secrets into a subprocess (`envchain ns -- cmd`). No `fetch`-to-stdout, no templates, no 1Password. Available via `brew install envchain`. |
-| fnox | ✅ partial | ✅ login KC | ✅ svc account | ❌ | Multi-backend (Keychain, 1Password, AWS, Azure, Bitwarden). Auto-loads on `cd`. Requires a 1Password service account token (paid plan). |
+| fnox | ✅ partial | ✅ login KC | ✅ svc account | ❌ | Multi-backend (Keychain, 1Password, AWS, Azure, Bitwarden). Auto-loads on `cd`. Requires a 1Password service account token (paid plan). Closest in spirit to envsecrets. |
 | pass | ✅ | ❌ GPG | ❌ | ❌ | GPG-encrypted file tree. Works anywhere, syncs via git. Requires GPG key management. |
 | Doppler / Infisical | ❌ | ❌ | ❌ | ❌ | SaaS platforms with team RBAC and audit logs. Require network access; no offline path. |
 | dotenvx | ✅ | ❌ | ❌ | ❌ | Encrypts `.env` files so they are safe to commit to git. File-based, not vault-based. Cross-platform. |
@@ -245,7 +245,7 @@ Several tools solve adjacent problems. Here is where they overlap and where they
 
 ### What envsecrets does not do
 
-- **Linux** — the `security` binary is macOS-only; there is no Linux keychain backend
+- **macOS only (for now)** — the `security` binary is macOS-only; there is no Linux or Windows keychain backend yet. Linux and Windows support is planned.
 - **Team sharing with RBAC** — use Doppler, Infisical, or 1Password's built-in sharing for that
 - **Directory-scoped auto-load** — fnox activates when you `cd` into a project; envsecrets does not
 - **Push secrets back to 1Password** — `sync` is one direction only (1Password → Keychain)
