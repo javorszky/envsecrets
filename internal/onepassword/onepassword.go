@@ -26,7 +26,7 @@ var ErrUnavailable = errors.New("1password: op CLI unavailable")
 
 // Client holds configuration for 1Password operations.
 type Client struct {
-	// Vault is the 1Password vault name or ID to use (e.g. "Private", "Work").
+	// Vault is the 1Password vault name or ID to use (e.g. "Envsecrets", "Work").
 	Vault string
 }
 

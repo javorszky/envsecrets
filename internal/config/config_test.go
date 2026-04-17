@@ -54,7 +54,7 @@ func TestLoad(t *testing.T) {
 		{
 			name:               "no file no env — all built-in defaults",
 			wantVault:          "envsecrets",
-			wantOpVault:        "Private",
+			wantOpVault:        "Envsecrets",
 			wantTemplate:       ".env.tpl",
 			wantOutput:         ".env",
 			wantFileFound:      false,
@@ -89,7 +89,7 @@ output = "staging.env"
 			fileContent: `vault = "myproject"
 `,
 			wantVault:          "myproject",
-			wantOpVault:        "Private",
+			wantOpVault:        "Envsecrets",
 			wantTemplate:       ".env.tpl",
 			wantOutput:         ".env",
 			wantFileFound:      true,
@@ -122,7 +122,7 @@ output = "staging.env"
 				"ENVSECRETS_VAULT": "envkc",
 			},
 			wantVault:          "envkc",
-			wantOpVault:        "Private",
+			wantOpVault:        "Envsecrets",
 			wantTemplate:       ".env.tpl",
 			wantOutput:         ".env",
 			wantFileFound:      false,
@@ -213,7 +213,7 @@ output = "file.out"
 			wantFileFound: false,
 			// other fields fall through to defaults
 			wantVault:          "envsecrets",
-			wantOpVault:        "Private",
+			wantOpVault:        "Envsecrets",
 			wantTemplate:       ".env.tpl",
 			wantOutput:         ".env",
 			wantSourceVault:    "default",

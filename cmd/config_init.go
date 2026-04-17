@@ -26,13 +26,13 @@ const defaultConfigContent = `# envsecrets configuration file
 vault = "envsecrets"
 
 # 1Password vault name.
-# RECOMMENDATION: Use a dedicated vault (not "Private") to keep your
-# envsecrets secrets organised and separate from personal 1Password items.
+# The default "Envsecrets" is a dedicated vault, keeping your secrets
+# organised and separate from personal 1Password items.
 # If the vault does not exist, envsecrets will create it automatically
 # on first write.
 # CLI flag:        --op-vault <name>
 # Environment var: ENVSECRETS_OP_VAULT
-op_vault = "Private"
+op_vault = "Envsecrets"
 
 # Default template file path for the gen-env command.
 # CLI flag:        --template <path>
@@ -67,9 +67,8 @@ Override the location with --config or $ENVSECRETS_CONFIG.`,
 
 		_, _ = fmt.Fprintf(os.Stdout, "✓ config file written: %s\n", path)
 		_, _ = fmt.Fprintln(os.Stdout)
-		_, _ = fmt.Fprintln(os.Stdout, "💡 Tip: set op_vault to a dedicated 1Password vault (not \"Private\") to")
-		_, _ = fmt.Fprintln(os.Stdout, "   keep your envsecrets secrets organised and separate from personal items.")
-		_, _ = fmt.Fprintln(os.Stdout, "   envsecrets will create the vault automatically on first write.")
+		_, _ = fmt.Fprintln(os.Stdout, "💡 Tip: the default op_vault \"Envsecrets\" will be created automatically")
+		_, _ = fmt.Fprintln(os.Stdout, "   on first write. Change it in the config file if you prefer a different name.")
 		return nil
 	},
 }
