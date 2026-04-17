@@ -1,4 +1,4 @@
-.PHONY: build lint test vet fmt govulncheck check
+.PHONY: build lint test vet fmt govulncheck check tidy
 
 build:
 	go build -o envsecrets .
@@ -19,3 +19,6 @@ govulncheck:
 	govulncheck ./...
 
 check: lint govulncheck test
+
+tidy:
+	go mod tidy && go mod download && go mod vendor
