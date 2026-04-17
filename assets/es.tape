@@ -1,4 +1,4 @@
-Output es.mp4
+Output es.gif
 
 Require envsecrets
 Require op
