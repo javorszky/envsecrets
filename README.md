@@ -122,6 +122,8 @@ envsecrets gen-env --template .env.tpl --output .env
 
 Reads a template file and resolves `secret:` references into real values, writing a ready-to-use `.env` file. Useful for projects that load config from a `.env` file at startup.
 
+> **Prefer not to install a binary?** Every command above has a pure-bash equivalent using the same `security` and `op` backends. See [BASH_FUNCTIONS.md](BASH_FUNCTIONS.md) for drop-in shell function alternatives — a simple login-keychain-only version and a full version that matches the binary's behaviour.
+
 ## Template format
 
 Create a `.env.tpl` file — safe to commit, contains no real secrets:
