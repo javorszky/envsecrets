@@ -220,6 +220,40 @@ API_KEY=secret:myproject_API_KEY
 
 This way, secrets from different projects coexist in the same Keychain and 1Password vault without collision.
 
+## How envsecrets compares
+
+Several tools solve adjacent problems. Here is where they overlap and where they differ.
+
+| Tool | Local / offline | macOS Keychain | 1Password | Template file | Notes |
+|------|:-:|:-:|:-:|:-:|-------|
+| **envsecrets** | ✅ | ✅ dedicated file | ✅ optional | ✅ `gen-env` | This tool |
+| `op run` / `op inject` | ❌ | ❌ | ✅ required | ✅ `op inject` | Built into the 1Password CLI. Same template idea, but always requires the 1Password app to be running. No Keychain cache. |
+| op-fast | ✅ TTL cache | ✅ login KC | ✅ required | ❌ | Caches `op` calls in the OS keychain with a TTL. Drop-in proxy for the `op` CLI. Entries expire; envsecrets keeps them indefinitely. |
+| envchain | ✅ | ✅ login KC | ❌ | ❌ | Injects secrets into a subprocess (`envchain ns -- cmd`). No `fetch`-to-stdout, no templates, no 1Password. Available via `brew install envchain`. |
+| fnox | ✅ partial | ✅ login KC | ✅ svc account | ❌ | Multi-backend (Keychain, 1Password, AWS, Azure, Bitwarden). Auto-loads on `cd`. Requires a 1Password service account token (paid plan). Closest in spirit to envsecrets. |
+| pass | ✅ | ❌ GPG | ❌ | ❌ | GPG-encrypted file tree. Works anywhere, syncs via git. Requires GPG key management. |
+| Doppler / Infisical | ❌ | ❌ | ❌ | ❌ | SaaS platforms with team RBAC and audit logs. Require network access; no offline path. |
+| dotenvx | ✅ | ❌ | ❌ | ❌ | Encrypts `.env` files so they are safe to commit to git. File-based, not vault-based. Cross-platform. |
+
+### What makes envsecrets different
+
+**Keychain as indefinite local cache for 1Password.** Other tools either use 1Password exclusively (always online) or use the Keychain exclusively (no durable backup). envsecrets does both: secrets fetched from 1Password are written into the local Keychain and served from there on every subsequent read, with no network call. 1Password is only contacted on a cold cache miss or a `sync`.
+
+**Dedicated per-vault keychain file.** Every other tool that uses macOS Keychain stores secrets in your login keychain alongside passwords and certificates. envsecrets creates a separate `.keychain` file per vault with its own password, giving clear isolation. The file and its password are documented at creation time in `~/Documents/envsecrets-<vault>-keychain-access.txt` so you can always open it in Keychain Access directly.
+
+**No account, no subscription, no network required.** The Keychain path works entirely offline. 1Password is opt-in.
+
+### What envsecrets does not do
+
+- **macOS only (for now)** — the `security` binary is macOS-only; there is no Linux or Windows keychain backend yet. Linux and Windows support is planned.
+- **Team sharing with RBAC** — use Doppler, Infisical, or 1Password's built-in sharing for that
+- **Directory-scoped auto-load** — fnox activates when you `cd` into a project; envsecrets does not
+- **Push secrets back to 1Password** — `sync` is one direction only (1Password → Keychain)
+
+### Name collision
+
+There is an unrelated project at `github.com/envsecrets/envsecrets` — a now-defunct cloud SaaS secrets manager (disabled signups in 2024, no active development). It has no macOS Keychain or 1Password integration and is not usable for new users.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
