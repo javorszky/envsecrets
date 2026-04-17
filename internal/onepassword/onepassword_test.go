@@ -50,6 +50,15 @@ func TestParseVaultNames(t *testing.T) {
 			input: `[{"id":"abc","title":"something"}]`,
 			want:  nil,
 		},
+		{
+			// Regression: op CLI may emit pretty-printed JSON with spaces after
+			// colons ("name": "…"). The old strings.Split approach split on
+			// `"name":"` (no space) and silently returned nil, causing EnsureVault
+			// to re-create the vault on every store call.
+			name:  "pretty-printed JSON with spaces after colons",
+			input: "[\n  {\n    \"id\": \"abc123\",\n    \"name\": \"EnvSecrets\"\n  }\n]",
+			want:  []string{"EnvSecrets"},
+		},
 	}
 
 	for _, tc := range tests {
@@ -104,6 +113,12 @@ func TestParseTitles(t *testing.T) {
 			name:  "no title fields present",
 			input: `[{"id":"abc","name":"something"}]`,
 			want:  nil,
+		},
+		{
+			// Regression: same pretty-printed JSON issue as ParseVaultNames.
+			name:  "pretty-printed JSON with spaces after colons",
+			input: "[\n  {\n    \"id\": \"abc123\",\n    \"title\": \"MY_KEY\"\n  }\n]",
+			want:  []string{"MY_KEY"},
 		},
 	}
 

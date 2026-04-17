@@ -8,6 +8,7 @@ package onepassword
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -197,7 +198,8 @@ func (c *Client) classifyErrorWithOutput(key string, err error, out []byte) erro
 
 	if strings.Contains(msg, "isn't an item") ||
 		strings.Contains(msg, "not found") ||
-		strings.Contains(msg, "no item") {
+		strings.Contains(msg, "no item") ||
+		strings.Contains(msg, "could not find") {
 		return ErrNotFound
 	}
 
@@ -257,21 +259,22 @@ To access your secrets without the envsecrets CLI:
 // ParseVaultNames extracts vault names from the JSON array returned by
 // `op vault list --format json`.
 // The expected shape is: [{"id":"...","name":"MyVault",...}, ...]
+// Returns nil on empty or unparseable input.
 func ParseVaultNames(jsonStr string) []string {
+	var vaults []struct {
+		Name string `json:"name"`
+	}
+
+	if err := json.Unmarshal([]byte(jsonStr), &vaults); err != nil {
+		return nil
+	}
+
 	var names []string
 
-	parts := strings.Split(jsonStr, `"name":"`)
-	for i, p := range parts {
-		if i == 0 {
-			continue // everything before the first match
+	for _, v := range vaults {
+		if v.Name != "" {
+			names = append(names, v.Name)
 		}
-
-		end := strings.Index(p, `"`)
-		if end < 0 {
-			continue
-		}
-
-		names = append(names, p[:end])
 	}
 
 	return names
@@ -279,24 +282,28 @@ func ParseVaultNames(jsonStr string) []string {
 
 // ParseTitles extracts item titles from the JSON array returned by `op item list`.
 // The expected shape is: [{"id":"...","title":"MY_KEY","vault":{...}}, ...]
-// It avoids importing encoding/json to keep the package lean.
+// Returns (nil, nil) on empty input; returns an error on malformed JSON.
 func ParseTitles(jsonStr string) ([]string, error) {
-	// Manual scan instead of encoding/json to keep the package lean.
+	var items []struct {
+		Title string `json:"title"`
+	}
+
+	if err := json.Unmarshal([]byte(jsonStr), &items); err != nil {
+		// Treat empty output as an empty result rather than an error — `op`
+		// can return nothing when a vault has no items.
+		if strings.TrimSpace(jsonStr) == "" {
+			return nil, nil
+		}
+
+		return nil, fmt.Errorf("parsing items JSON: %w", err)
+	}
+
 	var titles []string
 
-	// Split on `"title":"` and extract the value up to the next `"`.
-	parts := strings.Split(jsonStr, `"title":"`)
-	for i, p := range parts {
-		if i == 0 {
-			continue // everything before the first match
+	for _, item := range items {
+		if item.Title != "" {
+			titles = append(titles, item.Title)
 		}
-
-		end := strings.Index(p, `"`)
-		if end < 0 {
-			continue
-		}
-
-		titles = append(titles, p[:end])
 	}
 
 	return titles, nil
