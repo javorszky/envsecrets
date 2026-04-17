@@ -15,8 +15,8 @@ type Config struct {
 	// The file lives at ~/.local/share/envsecrets/<vault>.keychain.
 	Vault string
 	// OpVault is the 1Password vault name where secrets are stored.
-	// It is recommended to use a dedicated vault (not "Private") to keep
-	// envsecrets secrets organised and separate from personal items.
+	// The default "Envsecrets" is a dedicated vault, keeping secrets
+	// organised and separate from personal 1Password items.
 	OpVault string
 	// Template is the path to the gen-env template file.
 	Template string
@@ -76,7 +76,7 @@ func Load(configFlagValue string) *Config {
 
 	// Built-in defaults (lowest priority).
 	v.SetDefault("vault", "envsecrets")
-	v.SetDefault("op_vault", "Private")
+	v.SetDefault("op_vault", "Envsecrets")
 	v.SetDefault("template", ".env.tpl")
 	v.SetDefault("output", ".env")
 

@@ -48,7 +48,7 @@ func init() {
 	)
 	rootCmd.PersistentFlags().StringVar(
 		&opVaultFlag, "op-vault", "",
-		`1Password vault name (default: "Private", or $ENVSECRETS_OP_VAULT, or config file)`,
+		`1Password vault name (default: "Envsecrets", or $ENVSECRETS_OP_VAULT, or config file)`,
 	)
 }
 

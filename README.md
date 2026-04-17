@@ -156,9 +156,9 @@ envsecrets uses two separate vault concepts:
 | Setting | What it controls | Default |
 |---------|-----------------|---------|
 | `vault` | Name of the dedicated local keychain file (`~/.local/share/envsecrets/<name>.keychain`) | `envsecrets` |
-| `op_vault` | 1Password vault where secrets are stored | `Private` |
+| `op_vault` | 1Password vault where secrets are stored | `Envsecrets` |
 
-> **Recommendation:** Use a dedicated 1Password vault (not your personal `Private` vault) for envsecrets secrets. This keeps your secrets organised, easier to audit, and separate from personal items. envsecrets will **create the vault automatically** on first write if it does not exist.
+> **Note:** The default `Envsecrets` vault is dedicated to envsecrets secrets, keeping them organised and separate from personal 1Password items. envsecrets will **create it automatically** on first write if it does not exist. You can rename it to anything you like.
 
 ### Setting the 1Password vault
 
