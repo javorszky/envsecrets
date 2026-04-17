@@ -2,6 +2,8 @@
 
 A lightweight macOS CLI for storing and retrieving secrets as environment variables. Think of it as a poor-man's Vault — secrets live in your **macOS Keychain** for fast offline access, with **1Password** as an optional durable backup and cross-machine sync layer.
 
+_Developed collaboratively with [Claude](https://claude.ai) (Anthropic) — see [AI_USAGE.md](AI_USAGE.md)._
+
 ## Why
 
 Most developers store secrets directly in shell profiles or project files:
