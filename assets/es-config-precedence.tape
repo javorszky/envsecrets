@@ -8,62 +8,45 @@ Set FontSize 24
 Set Width 1200
 Set Height 600
 
-# --- SETUP: ensure a clean state with no config file and no env vars ---
+# --- SETUP ---
 Hide
 Type "mv ~/.config/envsecrets.toml ~/.config/envsecrets.toml.bak 2>/dev/null; true" Enter
 Wait
-Type "clear" Enter
-Show
-# -----------------------------------------------------------------------
-
-# Level 1 — BUILT-IN DEFAULT
-# No config file, no env vars, no flags.
-# SOURCE column shows "default" for every option.
-Type "# Level 1 — default (no config file, no env vars, no flags)" Enter
-Sleep 300ms
-Type "envsecrets config show" Enter
-Wait
-Sleep 2s
-Type "clear" Enter
-
-# Level 2 — CONFIG FILE
-# Create a minimal config file that sets op_vault.
-# SOURCE for op_vault changes from "default" → "config file".
-# All other options are not in the file, so they stay "default".
-Type "# Level 2 — config file beats default" Enter
-Sleep 300ms
+# Create the config file with 3 of the 4 options set
 Type "cat > ~/.config/envsecrets.toml << 'EOF'" Enter
+Type 'vault = "myproject"' Enter
 Type 'op_vault = "TeamVault"' Enter
+Type 'template = ".env.staging.tpl"' Enter
 Type "EOF" Enter
 Wait
-Type "envsecrets config show" Enter
-Wait
-Sleep 2s
 Type "clear" Enter
+Show
+# -------------
 
-# Level 3 — ENVIRONMENT VARIABLE
-# Env var ENVSECRETS_OP_VAULT is set for this one command only (inline assignment).
-# SOURCE for op_vault changes from "config file" → "env ($ENVSECRETS_OP_VAULT)".
-# The config file is still present but the env var wins.
-Type "# Level 3 — env var beats config file" Enter
-Sleep 300ms
-Type "ENVSECRETS_OP_VAULT=EnvVault envsecrets config show" Enter
+# Show what is in the config file
+Type "cat ~/.config/envsecrets.toml" Enter
 Wait
-Sleep 2s
-Type "clear" Enter
+Sleep 1s
 
-# Level 4 — CLI FLAG
-# --op-vault flag is the highest priority; beats env var, config file, and default.
-# SOURCE for op_vault changes to "flag (--op-vault)".
-# Env var is still set inline here to prove the flag overrides it too.
-Type "# Level 4 — CLI flag beats everything" Enter
+# Set env vars for 2 of the 3 options that are in the config file
+Type "export ENVSECRETS_OP_VAULT=EnvVault" Enter
 Sleep 300ms
-Type "ENVSECRETS_OP_VAULT=EnvVault envsecrets config show --op-vault FlagVault" Enter
+Type "export ENVSECRETS_TEMPLATE=.env.prod.tpl" Enter
+Sleep 500ms
+
+# Use a flag for one of the two env-var options
+# All four sources appear in one config show:
+#   vault    → config file  (in file; no env var, no flag)
+#   op_vault → flag         (in file + env var + flag — flag wins)
+#   template → env var      (in file + env var — env var beats file)
+#   output   → default      (not set anywhere)
+Type "envsecrets config show --op-vault FlagVault" Enter
 Wait
-Sleep 3s
+Sleep 4s
 
 # Cleanup (hidden)
 Hide
+Type "unset ENVSECRETS_OP_VAULT ENVSECRETS_TEMPLATE" Enter
 Type "rm -f ~/.config/envsecrets.toml" Enter
 Type "mv ~/.config/envsecrets.toml.bak ~/.config/envsecrets.toml 2>/dev/null; true" Enter
 Wait
