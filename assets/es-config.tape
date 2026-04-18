@@ -26,8 +26,20 @@ Type "envsecrets config init" Enter
 Wait
 Sleep 500ms
 
-# After: config file is found — values and their source are visible
+# Config file is now the source for every option
 Type "envsecrets config show" Enter
+Wait
+Sleep 1s
+Type "clear" Enter
+
+# Env var overrides the config file for that option — no file edit needed
+Type "ENVSECRETS_OP_VAULT=MyTeamVault envsecrets config show" Enter
+Wait
+Sleep 1s
+Type "clear" Enter
+
+# A CLI flag is the highest priority — overrides env var and config file alike
+Type "envsecrets config show --op-vault PersonalVault" Enter
 Wait
 Sleep 3s
 
