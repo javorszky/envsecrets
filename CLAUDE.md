@@ -31,6 +31,14 @@ When creating implementation plans, write them so that Haiku 4.5 can execute the
 - **Include verification commands.** End the plan with the exact shell commands to run (e.g., `go build ./...`, `go vet ./...`, test commands) so the model knows how to confirm the work is correct.
 - **No ambiguity.** Avoid phrases like "update as needed", "add appropriate error handling", or "follow existing patterns". Instead, show the exact error handling code, the exact pattern to follow.
 
+## Git Commit Trailers
+
+When committing code, use the `Assisted-By:` trailer instead of `Co-Authored-By:`. The human author is solely responsible for the work and its output.
+
+```
+Assisted-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+```
+
 ## Branch Workflow
 
 After a feature branch has been merged into main, ALWAYS:
