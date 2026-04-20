@@ -27,6 +27,7 @@ After any code change, update the relevant section(s) below to keep signatures a
 | File | Triggers | Jobs |
 |------|----------|------|
 | `ci.yml` | `pull_request`, `merge_group` | **lint** (golangci-lint incl. staticcheck, govet, gofmt), **test** (`go test -race`), **govulncheck** — all run in parallel |
+| `codeql.yml` | `pull_request` (branches: main), `merge_group` | **analyze** — CodeQL semantic analysis for Go using the `security-and-quality` query suite; uploads SARIF results to GitHub Security tab |
 
 ---
 
