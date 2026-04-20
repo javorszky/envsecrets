@@ -27,14 +27,14 @@ Examples:
 		ctx := cmd.Context()
 		mgr := secrets.New(cfg.Vault, cfg.OpVault)
 
-		_, _ = fmt.Fprintf(os.Stdout, "syncing from 1Password vault %q...\n", cfg.OpVault)
+		fmt.Fprintf(os.Stdout, "syncing from 1Password vault %q...\n", cfg.OpVault)
 
 		n, err := mgr.Sync(ctx)
 		if err != nil {
 			return fmt.Errorf("sync failed: %w", err)
 		}
 
-		_, _ = fmt.Fprintf(os.Stdout, "✓ synced %d secret(s) into Keychain\n", n)
+		fmt.Fprintf(os.Stdout, "✓ synced %d secret(s) into Keychain\n", n)
 
 		return nil
 	},

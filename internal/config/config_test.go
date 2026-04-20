@@ -43,10 +43,10 @@ func TestLoad(t *testing.T) {
 		wantTemplate       string
 		wantOutput         string
 		wantFileFound      bool
-		wantSourceVault    string
-		wantSourceOpVault  string
-		wantSourceTemplate string
-		wantSourceOutput   string
+		wantSourceVault    config.ActiveSource
+		wantSourceOpVault  config.ActiveSource
+		wantSourceTemplate config.ActiveSource
+		wantSourceOutput   config.ActiveSource
 	}{
 		// ----------------------------------------------------------------
 		// Defaults
@@ -58,10 +58,10 @@ func TestLoad(t *testing.T) {
 			wantTemplate:       ".env.tpl",
 			wantOutput:         ".env",
 			wantFileFound:      false,
-			wantSourceVault:    "default",
-			wantSourceOpVault:  "default",
-			wantSourceTemplate: "default",
-			wantSourceOutput:   "default",
+			wantSourceVault:    config.ActiveDefault,
+			wantSourceOpVault:  config.ActiveDefault,
+			wantSourceTemplate: config.ActiveDefault,
+			wantSourceOutput:   config.ActiveDefault,
 		},
 
 		// ----------------------------------------------------------------
@@ -79,10 +79,10 @@ output = "staging.env"
 			wantTemplate:       "staging.env.tpl",
 			wantOutput:         "staging.env",
 			wantFileFound:      true,
-			wantSourceVault:    "file",
-			wantSourceOpVault:  "file",
-			wantSourceTemplate: "file",
-			wantSourceOutput:   "file",
+			wantSourceVault:    config.ActiveFile,
+			wantSourceOpVault:  config.ActiveFile,
+			wantSourceTemplate: config.ActiveFile,
+			wantSourceOutput:   config.ActiveFile,
 		},
 		{
 			name: "config file sets vault only — op_vault template and output fall back to defaults",
@@ -93,10 +93,10 @@ output = "staging.env"
 			wantTemplate:       ".env.tpl",
 			wantOutput:         ".env",
 			wantFileFound:      true,
-			wantSourceVault:    "file",
-			wantSourceOpVault:  "default",
-			wantSourceTemplate: "default",
-			wantSourceOutput:   "default",
+			wantSourceVault:    config.ActiveFile,
+			wantSourceOpVault:  config.ActiveDefault,
+			wantSourceTemplate: config.ActiveDefault,
+			wantSourceOutput:   config.ActiveDefault,
 		},
 		{
 			name: "config file sets op_vault only",
@@ -107,10 +107,10 @@ output = "staging.env"
 			wantTemplate:       ".env.tpl",
 			wantOutput:         ".env",
 			wantFileFound:      true,
-			wantSourceVault:    "default",
-			wantSourceOpVault:  "file",
-			wantSourceTemplate: "default",
-			wantSourceOutput:   "default",
+			wantSourceVault:    config.ActiveDefault,
+			wantSourceOpVault:  config.ActiveFile,
+			wantSourceTemplate: config.ActiveDefault,
+			wantSourceOutput:   config.ActiveDefault,
 		},
 
 		// ----------------------------------------------------------------
@@ -126,10 +126,10 @@ output = "staging.env"
 			wantTemplate:       ".env.tpl",
 			wantOutput:         ".env",
 			wantFileFound:      false,
-			wantSourceVault:    "env",
-			wantSourceOpVault:  "default",
-			wantSourceTemplate: "default",
-			wantSourceOutput:   "default",
+			wantSourceVault:    config.ActiveEnv,
+			wantSourceOpVault:  config.ActiveDefault,
+			wantSourceTemplate: config.ActiveDefault,
+			wantSourceOutput:   config.ActiveDefault,
 		},
 		{
 			name: "ENVSECRETS_OP_VAULT overrides default",
@@ -141,10 +141,10 @@ output = "staging.env"
 			wantTemplate:       ".env.tpl",
 			wantOutput:         ".env",
 			wantFileFound:      false,
-			wantSourceVault:    "default",
-			wantSourceOpVault:  "env",
-			wantSourceTemplate: "default",
-			wantSourceOutput:   "default",
+			wantSourceVault:    config.ActiveDefault,
+			wantSourceOpVault:  config.ActiveEnv,
+			wantSourceTemplate: config.ActiveDefault,
+			wantSourceOutput:   config.ActiveDefault,
 		},
 		{
 			name: "all env vars set",
@@ -159,10 +159,10 @@ output = "staging.env"
 			wantTemplate:       "env.tpl",
 			wantOutput:         "env.out",
 			wantFileFound:      false,
-			wantSourceVault:    "env",
-			wantSourceOpVault:  "env",
-			wantSourceTemplate: "env",
-			wantSourceOutput:   "env",
+			wantSourceVault:    config.ActiveEnv,
+			wantSourceOpVault:  config.ActiveEnv,
+			wantSourceTemplate: config.ActiveEnv,
+			wantSourceOutput:   config.ActiveEnv,
 		},
 		{
 			name: "env vars override config file values",
@@ -178,10 +178,10 @@ op_vault = "FileOP"
 			wantTemplate:       ".env.tpl",
 			wantOutput:         ".env",
 			wantFileFound:      true,
-			wantSourceVault:    "env", // env wins
-			wantSourceOpVault:  "env", // env wins
-			wantSourceTemplate: "default",
-			wantSourceOutput:   "default",
+			wantSourceVault:    config.ActiveEnv, // env wins
+			wantSourceOpVault:  config.ActiveEnv, // env wins
+			wantSourceTemplate: config.ActiveDefault,
+			wantSourceOutput:   config.ActiveDefault,
 		},
 		{
 			name: "env var overrides for template and output but not vault or op_vault",
@@ -199,10 +199,10 @@ output = "file.out"
 			wantTemplate:       "env.tpl",
 			wantOutput:         "env.out",
 			wantFileFound:      true,
-			wantSourceVault:    "file",
-			wantSourceOpVault:  "file",
-			wantSourceTemplate: "env",
-			wantSourceOutput:   "env",
+			wantSourceVault:    config.ActiveFile,
+			wantSourceOpVault:  config.ActiveFile,
+			wantSourceTemplate: config.ActiveEnv,
+			wantSourceOutput:   config.ActiveEnv,
 		},
 
 		// ----------------------------------------------------------------
@@ -216,10 +216,10 @@ output = "file.out"
 			wantOpVault:        "Envsecrets",
 			wantTemplate:       ".env.tpl",
 			wantOutput:         ".env",
-			wantSourceVault:    "default",
-			wantSourceOpVault:  "default",
-			wantSourceTemplate: "default",
-			wantSourceOutput:   "default",
+			wantSourceVault:    config.ActiveDefault,
+			wantSourceOpVault:  config.ActiveDefault,
+			wantSourceTemplate: config.ActiveDefault,
+			wantSourceOutput:   config.ActiveDefault,
 		},
 		{
 			name:               "file found — FileFound is true",
@@ -229,10 +229,10 @@ output = "file.out"
 			wantOpVault:        "Exists",
 			wantTemplate:       ".env.tpl",
 			wantOutput:         ".env",
-			wantSourceVault:    "default",
-			wantSourceOpVault:  "file",
-			wantSourceTemplate: "default",
-			wantSourceOutput:   "default",
+			wantSourceVault:    config.ActiveDefault,
+			wantSourceOpVault:  config.ActiveFile,
+			wantSourceTemplate: config.ActiveDefault,
+			wantSourceOutput:   config.ActiveDefault,
 		},
 	}
 
@@ -301,7 +301,7 @@ func TestLoad_EnvsecretsCfgEnvVar(t *testing.T) {
 
 	require.True(t, cfg.FileFound)
 	assert.Equal(t, "FromEnvCfg", cfg.OpVault)
-	assert.Equal(t, "file", cfg.Sources["op_vault"].Active)
+	assert.Equal(t, config.ActiveFile, cfg.Sources["op_vault"].Active)
 }
 
 // ---------------------------------------------------------------------------
@@ -432,8 +432,8 @@ func TestApplyFlag(t *testing.T) {
 		Vault:   "envsecrets",
 		OpVault: "Envsecrets",
 		Sources: map[string]config.SourceState{
-			"vault":    {Active: "default"},
-			"op_vault": {Active: "file", Flags: config.SourceFile},
+			"vault":    {Active: config.ActiveDefault},
+			"op_vault": {Active: config.ActiveFile, Flags: config.SourceFile},
 		},
 	}
 
@@ -442,7 +442,7 @@ func TestApplyFlag(t *testing.T) {
 	// Value must be updated.
 	assert.Equal(t, "MyVault", cfg.OpVault)
 	// Active must be "flag", SourceFlag set, and FlagValue captured.
-	assert.Equal(t, "flag", cfg.Sources["op_vault"].Active)
+	assert.Equal(t, config.ActiveFlag, cfg.Sources["op_vault"].Active)
 	assert.True(t, cfg.Sources["op_vault"].Flags.Has(config.SourceFlag))
 	assert.Equal(t, "MyVault", cfg.Sources["op_vault"].FlagValue)
 	// Pre-existing SourceFile bit must be preserved.
@@ -450,7 +450,7 @@ func TestApplyFlag(t *testing.T) {
 
 	// Unrelated fields must be unaffected.
 	assert.Equal(t, "envsecrets", cfg.Vault)
-	assert.Equal(t, "default", cfg.Sources["vault"].Active)
+	assert.Equal(t, config.ActiveDefault, cfg.Sources["vault"].Active)
 	assert.False(t, cfg.Sources["vault"].Flags.Has(config.SourceFlag))
 }
 
@@ -464,7 +464,7 @@ func TestApplyFlag_NilSources(t *testing.T) {
 
 	assert.Equal(t, "newvault", cfg.Vault)
 	require.NotNil(t, cfg.Sources)
-	assert.Equal(t, "flag", cfg.Sources["vault"].Active)
+	assert.Equal(t, config.ActiveFlag, cfg.Sources["vault"].Active)
 	assert.True(t, cfg.Sources["vault"].Flags.Has(config.SourceFlag))
 	assert.Equal(t, "newvault", cfg.Sources["vault"].FlagValue)
 }

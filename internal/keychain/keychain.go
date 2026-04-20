@@ -253,7 +253,7 @@ func (c *Client) createKeychainFile(ctx context.Context) error {
 	// always has a copy of the password. This is best-effort: a failure here
 	// does not prevent the keychain from working.
 	if err := c.writeAccessFile(password); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr,
+		fmt.Fprintf(os.Stderr,
 			"warning: could not write keychain access file: %v\n", err)
 	}
 
@@ -399,7 +399,7 @@ password: %s
 		return fmt.Errorf("writing access file: %w", err)
 	}
 
-	_, _ = fmt.Fprintf(os.Stderr,
+	fmt.Fprintf(os.Stderr,
 		"info: keychain access details written to %s\n"+
 			"      Keep this file safe — it contains your keychain password.\n",
 		path,

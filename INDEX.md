@@ -15,7 +15,7 @@ After any code change, update the relevant section(s) below to keep signatures a
 | `LICENSE` | MIT license. |
 | `README.md` | User-facing documentation: why, installation, usage, architecture. |
 | `.gitignore` | Ignores binary, IDE files, `.env` files (except `.env.tpl`), coverage output. |
-| `.golangci.yml` | golangci-lint v2 config. Standard linters + `gofmt`. |
+| `.golangci.yml` | golangci-lint v2 config. Standard linters + `gofmt`. `errcheck` configured to exclude `fmt.Fprintf/Fprintln/Fprint`. |
 | `Makefile` | Local dev commands: `build`, `lint`, `test`, `vet`, `fmt`, `govulncheck`, `check` (runs all). |
 | `renovate.json` | Renovate config. Groups Go minor/patch deps and GitHub Actions updates. |
 | `lefthook.yml` | Lefthook pre-commit hooks: format check (`gofmt -l`), lint (`golangci-lint`), test (`go test -race`). |
@@ -58,7 +58,7 @@ Calls `config.Load(configFile)`, then iterates `config.AllFields()` and calls `c
 | `config_show.go` | `config show` | `--verbose` / `-v` | Prints an emoji-grid table (compact default) or per-source blocks (`--verbose` / `-v`). Verbose mode: one block per setting, each source shows ✅ + value or 🚫 + `(not set)`, with `⬆️ superseded by …` on losing sources and `🏆 ← active` on the winner. Unexported helpers: `srcRow` (type), `verboseOutput()`, `supersededBy()`, `displayWidth()`, `padRight()`, `boolEmoji()`, `sourceCell()`. |
 | `store.go` | `store <key> <value>` | — | Writes a secret via `Manager.Set()`. Uses `cfg.Vault` + `cfg.OpVault`. |
 | `fetch.go` | `fetch <key>` | — | Reads a secret via `Manager.Get()`. Prints raw value to stdout (no newline). |
-| `update.go` | `update <key> <value>` | — | Semantic alias for `store`; calls `Manager.Update()`. |
+| `update.go` | `update <key> <value>` | — | Semantic alias for `store`; calls `Manager.Set()`. |
 | `delete.go` | `delete <key>` | `--force` / `-f` | Deletes from both backends via `Manager.Delete()`. Prompts for confirmation unless `--force`. |
 | `sync.go` | `sync` | — | Pulls all items from the 1Password vault into Keychain via `Manager.Sync()`. Reports count. |
 | `gen_env.go` | `gen-env` | `--template` (default `.env.tpl`), `--output` (default `.env`) | Resolves `secret:` prefixed values in a template file via `Manager.Get()`; copies other lines verbatim. Flags registered dynamically from `config.ScopedFields("gen-env")`. |
@@ -84,6 +84,17 @@ Parsed metadata for one configurable field. Returned by `AllFields()`, `GlobalFi
 | `Usage` | `string` | Flag help text and config file comment. |
 | `Scope` | `string` | `"global"` (registered on `rootCmd.PersistentFlags`) or `"gen-env"` (registered on `genEnvCmd.Flags`). |
 
+### `ActiveSource` type
+
+A `uint8` identifying the highest-priority source currently active for a config field.
+
+| Symbol | Value | Meaning |
+|--------|-------|---------|
+| `ActiveDefault` | `0` | No file/env/flag present; using built-in default. |
+| `ActiveFile` | `1` | Config file value is active. |
+| `ActiveEnv` | `2` | Environment variable is active. |
+| `ActiveFlag` | `3` | CLI flag is active. |
+
 ### `SourceFlags` type
 
 A `byte` bitmask recording which sources contributed a value for one config field.
@@ -107,7 +118,7 @@ Records which sources contributed a value for one config field and which is winn
 | Field | Type | Description |
 |-------|------|-------------|
 | `Flags` | `SourceFlags` | Bitmask of set sources. Use `Flags.Has(SourceFile)` etc. |
-| `Active` | `string` | Winning source: `"default"` \| `"file"` \| `"env"` \| `"flag"`. |
+| `Active` | `ActiveSource` | Winning source: one of `ActiveDefault`, `ActiveFile`, `ActiveEnv`, `ActiveFlag`. |
 | `FileValue` | `string` | Value as read from the config file; empty when `SourceFile` is not set. Populated by `Load()`. |
 | `EnvValue` | `string` | Value of the env var at load time; empty when `SourceEnv` is not set. Populated by `Load()`. |
 | `FlagValue` | `string` | Value passed via CLI flag; empty when `SourceFlag` is not set. Populated by `ApplyFlag()`. |
@@ -131,10 +142,10 @@ Governs all resolved runtime configuration. The four configurable fields carry s
 | Signature | Description |
 |-----------|-------------|
 | `AllFields() []FieldMeta` | Returns `FieldMeta` for every struct field that has a `cfg` tag (currently 4: vault, op\_vault, template, output). Fields without a `cfg` tag are skipped. |
-| `GlobalFields() []FieldMeta` | Subset of `AllFields()` where `Scope == "global"`. Used by `root.go` for `PersistentFlags` registration. |
+| `GlobalFields() []FieldMeta` | Subset of `AllFields()` where `Scope == "global"`. Delegates to `ScopedFields("global")`. Used by `root.go` for `PersistentFlags` registration. |
 | `ScopedFields(scope string) []FieldMeta` | Subset of `AllFields()` where `Scope == scope`. Used by `gen_env.go` with `"gen-env"`. |
-| `GetValue(cfg *Config, key string) string` | Returns the current string value of the `Config` field whose `cfg` tag equals `key`. Used by `config show` to retrieve each field's resolved value. |
-| `ApplyFlag(cfg *Config, key, value string)` | Sets the `Config` field identified by `key` to `value`, sets `SourceFlag` bit on `cfg.Sources[key].Flags`, captures `FlagValue`, and sets `Active="flag"`. Called by `initConfig` for every changed CLI flag. |
+| `GetValue(cfg *Config, m FieldMeta) string` | Returns the current string value of the `Config` field described by `m`, using `m.FieldIndex` directly. Used by `config show` to retrieve each field's resolved value. |
+| `ApplyFlag(cfg *Config, key, value string)` | Sets the `Config` field identified by `key` to `value`, sets `SourceFlag` bit on `cfg.Sources[key].Flags`, captures `FlagValue`, and sets `Active=ActiveFlag`. Called by `initConfig` for every changed CLI flag. |
 | `Load(configFlagValue string) *Config` | Resolves the config file path (`--config` flag → `$ENVSECRETS_CONFIG` → `~/.config/envsecrets.toml`), binds env vars and defaults from struct tags, reads the TOML file, populates all fields via reflection, and returns a fully-populated `*Config`. Does **not** apply flag overrides — the `cmd` layer calls `ApplyFlag` for that. |
 | `GenerateConfigTemplate() string` | Returns a documented TOML config file string, generated dynamically from struct tags. Each field gets a comment block with usage text, CLI flag name, and env var name. Used by `config init`. |
 | `resolvePath(configFlagValue string) string` *(unexported)* | Returns the config file path to use, honouring `--config` flag → `$ENVSECRETS_CONFIG` → default (`~/.config/envsecrets.toml`). |
@@ -230,8 +241,8 @@ Governs all operations against a single named 1Password vault.
 |-----------|-------------|
 | `(c *Client) create(ctx context.Context, key, value string) error` | Creates a new Login item via `op item create`. |
 | `(c *Client) edit(ctx context.Context, key, value string) error` | Updates an existing Login item via `op item edit`. |
-| `(c *Client) classifyError(key string, err error) error` | Delegates to `classifyErrorWithOutput` with nil output. |
-| `(c *Client) classifyErrorWithOutput(key string, err error, out []byte) error` | Maps op CLI stderr output to `ErrNotFound`, `ErrUnavailable`, or a generic error. |
+| `classifyError(key string, err error) error` *(free function)* | Delegates to `classifyErrorWithOutput` with nil output. |
+| `classifyErrorWithOutput(key string, err error, out []byte) error` *(free function)* | Maps op CLI stderr output to `ErrNotFound`, `ErrUnavailable`, or a generic error. |
 | `(c *Client) accessFilePath() string` | Returns `~/Documents/envsecrets-<Vault>-1password-access.txt`. |
 | `(c *Client) writeAccessFile() error` | Writes a human-readable file (mode 0600) with vault name and instructions for accessing secrets directly in 1Password. Prints the path to stderr. |
 
@@ -273,7 +284,6 @@ Governs the combined read/write/delete/sync logic across the two `SecretStore` b
 | `(m *Manager) WithWarningWriter(w io.Writer) *Manager` | Overrides the warning writer; returns `m` for chaining. |
 | `(m *Manager) Get(ctx context.Context, key string) (string, error)` | Keychain first. On miss, tries 1Password (if available) and caches the result back into Keychain. |
 | `(m *Manager) Set(ctx context.Context, key, value string) error` | Calls `kc.EnsureVault` (fatal on error), writes to Keychain (fatal on error), then calls `op.EnsureVault` + `op.Set` (both non-fatal; warnings only). |
-| `(m *Manager) Update(ctx context.Context, key, value string) error` | Semantic alias for `Set`; the distinction is at the CLI layer only. |
 | `(m *Manager) Delete(ctx context.Context, key string) error` | Attempts both backends; collects errors via `errors.Join`; `ErrNotFound` on either side is silently ignored. |
 | `(m *Manager) Sync(ctx context.Context) (synced int, err error)` | Lists all keys from 1Password, fetches each, writes to Keychain. Returns count of successfully written keys. |
 

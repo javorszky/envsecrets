@@ -381,23 +381,6 @@ func TestManager_Set(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Manager.Update
-// ---------------------------------------------------------------------------
-
-func TestManager_Update(t *testing.T) {
-	t.Parallel()
-
-	// Update is a semantic alias for Set — one case verifies the delegation.
-	kc := newStubStore(true, keychain.ErrNotFound, map[string]string{"KEY": "old"})
-	op := newStubStore(true, onepassword.ErrNotFound, map[string]string{"KEY": "old"})
-	mgr, _ := newMgr(kc, op)
-
-	require.NoError(t, mgr.Update(context.Background(), "KEY", "new"))
-	assert.Equal(t, "new", kc.data["KEY"])
-	assert.Equal(t, "new", op.data["KEY"])
-}
-
-// ---------------------------------------------------------------------------
 // Manager.Delete
 // ---------------------------------------------------------------------------
 

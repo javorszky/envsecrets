@@ -106,7 +106,7 @@ func (m *Manager) Get(ctx context.Context, key string) (string, error) {
 
 	// Warm the Keychain so next time we don't need 1Password.
 	if kcErr := m.kc.Set(ctx, key, val); kcErr != nil {
-		_, _ = fmt.Fprintf(m.warn, "warning: could not cache %q in keychain: %v\n", key, kcErr)
+		fmt.Fprintf(m.warn, "warning: could not cache %q in keychain: %v\n", key, kcErr)
 	}
 
 	return val, nil
@@ -122,7 +122,7 @@ func (m *Manager) Set(ctx context.Context, key, value string) error {
 	if created, err := m.kc.EnsureVault(ctx); err != nil {
 		return fmt.Errorf("keychain vault ensure: %w", err)
 	} else if created {
-		_, _ = fmt.Fprintf(m.warn, "info: keychain vault created\n")
+		fmt.Fprintf(m.warn, "info: keychain vault created\n")
 	}
 
 	if err := m.kc.Set(ctx, key, value); err != nil {
@@ -130,27 +130,22 @@ func (m *Manager) Set(ctx context.Context, key, value string) error {
 	}
 
 	if !m.op.Available(ctx) {
-		_, _ = fmt.Fprintf(m.warn, "warning: 1Password unavailable; %q stored in keychain only\n", key)
+		fmt.Fprintf(m.warn, "warning: 1Password unavailable; %q stored in keychain only\n", key)
 		return nil
 	}
 
 	// Ensure the 1Password vault exists, creating it if necessary.
 	if created, err := m.op.EnsureVault(ctx); err != nil {
-		_, _ = fmt.Fprintf(m.warn, "warning: could not ensure 1Password vault: %v\n", err)
+		fmt.Fprintf(m.warn, "warning: could not ensure 1Password vault: %v\n", err)
 	} else if created {
-		_, _ = fmt.Fprintf(m.warn, "info: 1Password vault created\n")
+		fmt.Fprintf(m.warn, "info: 1Password vault created\n")
 	}
 
 	if err := m.op.Set(ctx, key, value); err != nil {
-		_, _ = fmt.Fprintf(m.warn, "warning: 1Password write failed for %q: %v\n", key, err)
+		fmt.Fprintf(m.warn, "warning: 1Password write failed for %q: %v\n", key, err)
 	}
 
 	return nil
-}
-
-// Update is an alias for Set — the distinction is semantic at the CLI layer.
-func (m *Manager) Update(ctx context.Context, key, value string) error {
-	return m.Set(ctx, key, value)
 }
 
 // Delete removes the secret from both backends. Errors from each are collected
@@ -167,7 +162,7 @@ func (m *Manager) Delete(ctx context.Context, key string) error {
 			errs = append(errs, fmt.Errorf("1password delete: %w", err))
 		}
 	} else {
-		_, _ = fmt.Fprintf(m.warn, "warning: 1Password unavailable; %q removed from keychain only\n", key)
+		fmt.Fprintf(m.warn, "warning: 1Password unavailable; %q removed from keychain only\n", key)
 	}
 
 	return errors.Join(errs...)
@@ -188,12 +183,12 @@ func (m *Manager) Sync(ctx context.Context) (synced int, err error) {
 	for _, key := range keys {
 		val, getErr := m.op.Get(ctx, key)
 		if getErr != nil {
-			_, _ = fmt.Fprintf(m.warn, "warning: skipping %q: %v\n", key, getErr)
+			fmt.Fprintf(m.warn, "warning: skipping %q: %v\n", key, getErr)
 			continue
 		}
 
 		if setErr := m.kc.Set(ctx, key, val); setErr != nil {
-			_, _ = fmt.Fprintf(m.warn, "warning: could not write %q to keychain: %v\n", key, setErr)
+			fmt.Fprintf(m.warn, "warning: could not write %q to keychain: %v\n", key, setErr)
 			continue
 		}
 
