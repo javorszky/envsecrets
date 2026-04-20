@@ -24,9 +24,9 @@ is what it is.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Config file status line (shared by both modes).
 		if cfg.FileFound {
-			_, _ = fmt.Fprintf(os.Stdout, "Config file: %s\n\n", cfg.FilePath)
+			fmt.Fprintf(os.Stdout, "Config file: %s\n\n", cfg.FilePath)
 		} else {
-			_, _ = fmt.Fprintf(os.Stdout, "Config file: %s (not found, using defaults)\n\n", cfg.FilePath)
+			fmt.Fprintf(os.Stdout, "Config file: %s (not found, using defaults)\n\n", cfg.FilePath)
 		}
 
 		verbose, _ := cmd.Flags().GetBool("verbose")
@@ -47,18 +47,18 @@ is what it is.`,
 			padRight("🌿 env", wSource) + "  " +
 			padRight("🚩 flag", wSource) + "  " +
 			"VALUE"
-		_, _ = fmt.Fprintln(os.Stdout, header)
+		fmt.Fprintln(os.Stdout, header)
 
 		for _, m := range config.AllFields() {
 			state := cfg.Sources[m.Key]
-			value := config.GetValue(cfg, m.Key)
+			value := config.GetValue(cfg, m)
 
-			defCell := sourceCell("📦", state.Active == "default")
-			fileCell := sourceCell(boolEmoji(state.Flags.Has(config.SourceFile)), state.Active == "file")
-			envCell := sourceCell(boolEmoji(state.Flags.Has(config.SourceEnv)), state.Active == "env")
-			flagCell := sourceCell(boolEmoji(state.Flags.Has(config.SourceFlag)), state.Active == "flag")
+			defCell := sourceCell("📦", state.Active == config.ActiveDefault)
+			fileCell := sourceCell(boolEmoji(state.Flags.Has(config.SourceFile)), state.Active == config.ActiveFile)
+			envCell := sourceCell(boolEmoji(state.Flags.Has(config.SourceEnv)), state.Active == config.ActiveEnv)
+			flagCell := sourceCell(boolEmoji(state.Flags.Has(config.SourceFlag)), state.Active == config.ActiveFlag)
 
-			_, _ = fmt.Fprintf(os.Stdout, "%s  %s  %s  %s  %s  %s\n",
+			fmt.Fprintf(os.Stdout, "%s  %s  %s  %s  %s  %s\n",
 				padRight(m.Key, wOption),
 				padRight(defCell, wSource),
 				padRight(fileCell, wSource),
@@ -82,6 +82,7 @@ func init() {
 type srcRow struct {
 	emoji     string
 	label     string
+	source    config.ActiveSource // which ActiveSource constant this row represents
 	isSet     bool
 	identVal  string // shown when isSet is true  (e.g. `✅  vault = "myproject"`)
 	notSetVal string // shown when isSet is false (e.g. `🚫  ENVSECRETS_VAULT (not set)`)
@@ -101,19 +102,21 @@ func verboseOutput() {
 	for _, m := range config.AllFields() {
 		state := cfg.Sources[m.Key]
 
-		_, _ = fmt.Fprintln(os.Stdout, sep)
-		_, _ = fmt.Fprintln(os.Stdout, m.Key)
+		fmt.Fprintln(os.Stdout, sep)
+		fmt.Fprintln(os.Stdout, m.Key)
 
 		rows := []srcRow{
 			{
 				emoji:    "📦",
 				label:    "default",
+				source:   config.ActiveDefault,
 				isSet:    true,
 				identVal: "✅  " + fmt.Sprintf("%q", m.Default),
 			},
 			{
 				emoji:     "📄",
 				label:     "config file",
+				source:    config.ActiveFile,
 				isSet:     state.Flags.Has(config.SourceFile),
 				identVal:  "✅  " + fmt.Sprintf("%s = %q", m.Key, state.FileValue),
 				notSetVal: "🚫  (not set)",
@@ -121,6 +124,7 @@ func verboseOutput() {
 			{
 				emoji:     "🌿",
 				label:     "env var",
+				source:    config.ActiveEnv,
 				isSet:     state.Flags.Has(config.SourceEnv),
 				identVal:  "✅  " + fmt.Sprintf("%s = %q", m.EnvVar, state.EnvValue),
 				notSetVal: "🚫  " + m.EnvVar + " (not set)",
@@ -128,6 +132,7 @@ func verboseOutput() {
 			{
 				emoji:     "🚩",
 				label:     "cli flag",
+				source:    config.ActiveFlag,
 				isSet:     state.Flags.Has(config.SourceFlag),
 				identVal:  "✅  " + fmt.Sprintf("--%s = %q", m.Flag, state.FlagValue),
 				notSetVal: "🚫  --" + m.Flag + " (not set)",
@@ -138,7 +143,7 @@ func verboseOutput() {
 			labelCell := padRight(row.label, wLabel)
 
 			if !row.isSet {
-				_, _ = fmt.Fprintf(os.Stdout, "  %s  %s  %s\n",
+				fmt.Fprintf(os.Stdout, "  %s  %s  %s\n",
 					row.emoji,
 					labelCell,
 					row.notSetVal,
@@ -152,7 +157,7 @@ func verboseOutput() {
 				status = "🏆 ← active"
 			}
 
-			_, _ = fmt.Fprintf(os.Stdout, "  %s  %s  %s  %s\n",
+			fmt.Fprintf(os.Stdout, "  %s  %s  %s  %s\n",
 				row.emoji,
 				labelCell,
 				identCell,
@@ -160,10 +165,10 @@ func verboseOutput() {
 			)
 		}
 
-		_, _ = fmt.Fprintln(os.Stdout)
+		fmt.Fprintln(os.Stdout)
 	}
 
-	_, _ = fmt.Fprintln(os.Stdout, sep)
+	fmt.Fprintln(os.Stdout, sep)
 }
 
 // supersededBy returns "⬆️ superseded by <label> (<identifier>)" if any
@@ -174,12 +179,12 @@ func supersededBy(rows []srcRow, i int, m config.FieldMeta) string {
 			continue
 		}
 
-		switch rows[j].label {
-		case "config file":
+		switch rows[j].source {
+		case config.ActiveFile:
 			return "⬆️ superseded by config file"
-		case "env var":
+		case config.ActiveEnv:
 			return fmt.Sprintf("⬆️ superseded by env var (%s)", m.EnvVar)
-		case "cli flag":
+		case config.ActiveFlag:
 			return fmt.Sprintf("⬆️ superseded by cli flag (--%s)", m.Flag)
 		}
 	}

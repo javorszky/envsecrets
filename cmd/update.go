@@ -25,11 +25,11 @@ Examples:
 		key, value := args[0], args[1]
 		mgr := secrets.New(cfg.Vault, cfg.OpVault)
 
-		if err := mgr.Update(ctx, key, value); err != nil {
+		if err := mgr.Set(ctx, key, value); err != nil {
 			return fmt.Errorf("update failed: %w", err)
 		}
 
-		_, _ = fmt.Fprintf(os.Stdout, "✓ updated %q\n", key)
+		fmt.Fprintf(os.Stdout, "✓ updated %q\n", key)
 
 		return nil
 	},

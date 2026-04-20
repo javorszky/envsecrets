@@ -36,7 +36,7 @@ Examples:
 		}
 
 		// No trailing newline — friendly for $() substitution.
-		_, _ = fmt.Fprint(os.Stdout, val)
+		fmt.Fprint(os.Stdout, val)
 
 		return nil
 	},

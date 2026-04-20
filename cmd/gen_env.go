@@ -64,14 +64,14 @@ Examples:
 			// Preserve blank lines and comments unchanged.
 			trimmed := strings.TrimSpace(line)
 			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-				_, _ = fmt.Fprintln(w, line)
+				fmt.Fprintln(w, line)
 				continue
 			}
 
 			// Split on first `=` only.
 			parts := strings.SplitN(line, "=", 2)
 			if len(parts) != 2 {
-				_, _ = fmt.Fprintln(w, line)
+				fmt.Fprintln(w, line)
 				continue
 			}
 
@@ -79,7 +79,7 @@ Examples:
 
 			if !strings.HasPrefix(envVal, "secret:") {
 				// Plain value — copy verbatim.
-				_, _ = fmt.Fprintln(w, line)
+				fmt.Fprintln(w, line)
 				continue
 			}
 
@@ -90,7 +90,7 @@ Examples:
 				return fmt.Errorf("line %d: resolving %q: %w", lineNo, secretKey, fetchErr)
 			}
 
-			_, _ = fmt.Fprintf(w, "%s=%s\n", envKey, val)
+			fmt.Fprintf(w, "%s=%s\n", envKey, val)
 			resolved++
 		}
 
@@ -102,7 +102,7 @@ Examples:
 			return fmt.Errorf("writing output: %w", err)
 		}
 
-		_, _ = fmt.Fprintf(os.Stdout, "✓ wrote %q (%d secret(s) resolved)\n", outputPath, resolved)
+		fmt.Fprintf(os.Stdout, "✓ wrote %q (%d secret(s) resolved)\n", outputPath, resolved)
 
 		return nil
 	},
