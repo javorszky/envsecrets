@@ -43,6 +43,8 @@ func init() {
 	for _, m := range config.GlobalFields() {
 		rootCmd.PersistentFlags().String(m.Flag, "", m.Usage)
 	}
+
+	rootCmd.AddCommand(versionCmd)
 }
 
 // initConfig loads configuration from file and environment variables, then

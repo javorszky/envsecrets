@@ -1,0 +1,89 @@
+# Validate: goreleaser check
+# Test locally (no publish): goreleaser release --snapshot --clean
+
+version: 2
+
+project_name: envsecrets
+
+before:
+  hooks:
+    - go mod tidy
+    - go mod verify
+
+builds:
+  - id: envsecrets
+    main: .
+    binary: envsecrets
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+    goarch:
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/javorszky/envsecrets/cmd.Version={{.Version}}
+      - -X github.com/javorszky/envsecrets/cmd.Commit={{.Commit}}
+      - -X github.com/javorszky/envsecrets/cmd.Date={{.Date}}
+      - -X github.com/javorszky/envsecrets/cmd.BuiltBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: default
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    format: tar.gz
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+  algorithm: sha256
+
+# syft is installed by anchore/sbom-action/download-syft in the release workflow.
+# Produces one CycloneDX JSON SBOM per archive, uploaded as a release artifact.
+sboms:
+  - artifacts: archive
+    args: ["$artifact", "--output", "cyclonedx-json=$document"]
+
+changelog:
+  sort: asc
+  use: github
+  groups:
+    - title: "Features"
+      regexp: '^feat(\(.+\))?: .+'
+      order: 0
+    - title: "Bug Fixes"
+      regexp: '^fix(\(.+\))?: .+'
+      order: 1
+    - title: "Documentation"
+      regexp: '^docs(\(.+\))?: .+'
+      order: 2
+    - title: "Other Changes"
+      order: 999
+  filters:
+    exclude:
+      - "^chore\\(deps\\)"
+      - "^chore: bump"
+      - "^ci:"
+      - "^build:"
+      - "Merge (pull request|branch)"
+
+release:
+  github:
+    owner: javorszky
+    name: envsecrets
+  prerelease: auto
+  draft: false
+  header: |
+    ## envsecrets {{ .Tag }}
+
+    Download the binary below and place it in your `$PATH`.
+  footer: |
+    ---
+    **Full Changelog**: https://github.com/javorszky/envsecrets/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
