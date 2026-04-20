@@ -79,10 +79,10 @@ output = "staging.env"
 			wantTemplate:       "staging.env.tpl",
 			wantOutput:         "staging.env",
 			wantFileFound:      true,
-			wantSourceVault:    "config file",
-			wantSourceOpVault:  "config file",
-			wantSourceTemplate: "config file",
-			wantSourceOutput:   "config file",
+			wantSourceVault:    "file",
+			wantSourceOpVault:  "file",
+			wantSourceTemplate: "file",
+			wantSourceOutput:   "file",
 		},
 		{
 			name: "config file sets vault only — op_vault template and output fall back to defaults",
@@ -93,7 +93,7 @@ output = "staging.env"
 			wantTemplate:       ".env.tpl",
 			wantOutput:         ".env",
 			wantFileFound:      true,
-			wantSourceVault:    "config file",
+			wantSourceVault:    "file",
 			wantSourceOpVault:  "default",
 			wantSourceTemplate: "default",
 			wantSourceOutput:   "default",
@@ -108,7 +108,7 @@ output = "staging.env"
 			wantOutput:         ".env",
 			wantFileFound:      true,
 			wantSourceVault:    "default",
-			wantSourceOpVault:  "config file",
+			wantSourceOpVault:  "file",
 			wantSourceTemplate: "default",
 			wantSourceOutput:   "default",
 		},
@@ -126,7 +126,7 @@ output = "staging.env"
 			wantTemplate:       ".env.tpl",
 			wantOutput:         ".env",
 			wantFileFound:      false,
-			wantSourceVault:    "env ($ENVSECRETS_VAULT)",
+			wantSourceVault:    "env",
 			wantSourceOpVault:  "default",
 			wantSourceTemplate: "default",
 			wantSourceOutput:   "default",
@@ -142,7 +142,7 @@ output = "staging.env"
 			wantOutput:         ".env",
 			wantFileFound:      false,
 			wantSourceVault:    "default",
-			wantSourceOpVault:  "env ($ENVSECRETS_OP_VAULT)",
+			wantSourceOpVault:  "env",
 			wantSourceTemplate: "default",
 			wantSourceOutput:   "default",
 		},
@@ -159,10 +159,10 @@ output = "staging.env"
 			wantTemplate:       "env.tpl",
 			wantOutput:         "env.out",
 			wantFileFound:      false,
-			wantSourceVault:    "env ($ENVSECRETS_VAULT)",
-			wantSourceOpVault:  "env ($ENVSECRETS_OP_VAULT)",
-			wantSourceTemplate: "env ($ENVSECRETS_TEMPLATE)",
-			wantSourceOutput:   "env ($ENVSECRETS_OUTPUT)",
+			wantSourceVault:    "env",
+			wantSourceOpVault:  "env",
+			wantSourceTemplate: "env",
+			wantSourceOutput:   "env",
 		},
 		{
 			name: "env vars override config file values",
@@ -178,8 +178,8 @@ op_vault = "FileOP"
 			wantTemplate:       ".env.tpl",
 			wantOutput:         ".env",
 			wantFileFound:      true,
-			wantSourceVault:    "env ($ENVSECRETS_VAULT)",    // env wins
-			wantSourceOpVault:  "env ($ENVSECRETS_OP_VAULT)", // env wins
+			wantSourceVault:    "env", // env wins
+			wantSourceOpVault:  "env", // env wins
 			wantSourceTemplate: "default",
 			wantSourceOutput:   "default",
 		},
@@ -199,10 +199,10 @@ output = "file.out"
 			wantTemplate:       "env.tpl",
 			wantOutput:         "env.out",
 			wantFileFound:      true,
-			wantSourceVault:    "config file",
-			wantSourceOpVault:  "config file",
-			wantSourceTemplate: "env ($ENVSECRETS_TEMPLATE)",
-			wantSourceOutput:   "env ($ENVSECRETS_OUTPUT)",
+			wantSourceVault:    "file",
+			wantSourceOpVault:  "file",
+			wantSourceTemplate: "env",
+			wantSourceOutput:   "env",
 		},
 
 		// ----------------------------------------------------------------
@@ -230,7 +230,7 @@ output = "file.out"
 			wantTemplate:       ".env.tpl",
 			wantOutput:         ".env",
 			wantSourceVault:    "default",
-			wantSourceOpVault:  "config file",
+			wantSourceOpVault:  "file",
 			wantSourceTemplate: "default",
 			wantSourceOutput:   "default",
 		},
@@ -266,10 +266,10 @@ output = "file.out"
 			assert.Equal(t, tc.wantTemplate, cfg.Template, "Template")
 			assert.Equal(t, tc.wantOutput, cfg.Output, "Output")
 			assert.Equal(t, tc.wantFileFound, cfg.FileFound, "FileFound")
-			assert.Equal(t, tc.wantSourceVault, cfg.Sources.Vault, "Sources.Vault")
-			assert.Equal(t, tc.wantSourceOpVault, cfg.Sources.OpVault, "Sources.OpVault")
-			assert.Equal(t, tc.wantSourceTemplate, cfg.Sources.Template, "Sources.Template")
-			assert.Equal(t, tc.wantSourceOutput, cfg.Sources.Output, "Sources.Output")
+			assert.Equal(t, tc.wantSourceVault, cfg.Sources["vault"].Active, "Sources[vault].Active")
+			assert.Equal(t, tc.wantSourceOpVault, cfg.Sources["op_vault"].Active, "Sources[op_vault].Active")
+			assert.Equal(t, tc.wantSourceTemplate, cfg.Sources["template"].Active, "Sources[template].Active")
+			assert.Equal(t, tc.wantSourceOutput, cfg.Sources["output"].Active, "Sources[output].Active")
 
 			// FilePath should always be non-empty.
 			assert.NotEmpty(t, cfg.FilePath, "FilePath")
@@ -301,5 +301,204 @@ func TestLoad_EnvsecretsCfgEnvVar(t *testing.T) {
 
 	require.True(t, cfg.FileFound)
 	assert.Equal(t, "FromEnvCfg", cfg.OpVault)
-	assert.Equal(t, "config file", cfg.Sources.OpVault)
+	assert.Equal(t, "file", cfg.Sources["op_vault"].Active)
+}
+
+// ---------------------------------------------------------------------------
+// TestLoad_SourceValues — FileValue and EnvValue are captured in SourceState
+// ---------------------------------------------------------------------------
+
+func TestLoad_SourceValues(t *testing.T) {
+	// Not parallel: manipulates env vars.
+	t.Setenv("ENVSECRETS_VAULT", "")
+	t.Setenv("ENVSECRETS_OP_VAULT", "")
+	t.Setenv("ENVSECRETS_TEMPLATE", "")
+	t.Setenv("ENVSECRETS_OUTPUT", "")
+	t.Setenv("ENVSECRETS_CONFIG", "")
+
+	cfgPath := writeTempConfig(t, `vault = "filekc"`+"\n")
+	t.Setenv("ENVSECRETS_OP_VAULT", "EnvOP")
+
+	cfg := config.Load(cfgPath)
+
+	// vault was set in the config file.
+	assert.True(t, cfg.Sources["vault"].Flags.Has(config.SourceFile))
+	assert.Equal(t, "filekc", cfg.Sources["vault"].FileValue)
+
+	// op_vault was set via env var.
+	assert.True(t, cfg.Sources["op_vault"].Flags.Has(config.SourceEnv))
+	assert.Equal(t, "EnvOP", cfg.Sources["op_vault"].EnvValue)
+
+	// template was not set by file or env — values must be empty.
+	assert.False(t, cfg.Sources["template"].Flags.Has(config.SourceFile))
+	assert.False(t, cfg.Sources["template"].Flags.Has(config.SourceEnv))
+	assert.Empty(t, cfg.Sources["template"].FileValue)
+	assert.Empty(t, cfg.Sources["template"].EnvValue)
+}
+
+// ---------------------------------------------------------------------------
+// TestAllFields — verifies struct tag reflection
+// ---------------------------------------------------------------------------
+
+func TestAllFields(t *testing.T) {
+	t.Parallel()
+
+	fields := config.AllFields()
+
+	require.Len(t, fields, 4)
+
+	// All four TOML keys must be present in order.
+	assert.Equal(t, "vault", fields[0].Key)
+	assert.Equal(t, "op_vault", fields[1].Key)
+	assert.Equal(t, "template", fields[2].Key)
+	assert.Equal(t, "output", fields[3].Key)
+
+	// vault — global scope
+	vault := fields[0]
+	assert.Equal(t, "ENVSECRETS_VAULT", vault.EnvVar)
+	assert.Equal(t, "vault", vault.Flag)
+	assert.Equal(t, "envsecrets", vault.Default)
+	assert.Equal(t, "global", vault.Scope)
+	assert.NotEmpty(t, vault.Usage)
+
+	// op_vault — global scope
+	opVault := fields[1]
+	assert.Equal(t, "ENVSECRETS_OP_VAULT", opVault.EnvVar)
+	assert.Equal(t, "op-vault", opVault.Flag)
+	assert.Equal(t, "Envsecrets", opVault.Default)
+	assert.Equal(t, "global", opVault.Scope)
+	assert.NotEmpty(t, opVault.Usage)
+
+	// template — gen-env scope
+	template := fields[2]
+	assert.Equal(t, "ENVSECRETS_TEMPLATE", template.EnvVar)
+	assert.Equal(t, "template", template.Flag)
+	assert.Equal(t, ".env.tpl", template.Default)
+	assert.Equal(t, "gen-env", template.Scope)
+	assert.NotEmpty(t, template.Usage)
+
+	// output — gen-env scope
+	output := fields[3]
+	assert.Equal(t, "ENVSECRETS_OUTPUT", output.EnvVar)
+	assert.Equal(t, "output", output.Flag)
+	assert.Equal(t, ".env", output.Default)
+	assert.Equal(t, "gen-env", output.Scope)
+	assert.NotEmpty(t, output.Usage)
+}
+
+// ---------------------------------------------------------------------------
+// TestSourceFlags — bitmask type, constants, and methods
+// ---------------------------------------------------------------------------
+
+func TestSourceFlags(t *testing.T) {
+	t.Parallel()
+
+	var f config.SourceFlags
+
+	// Zero value has no bits set.
+	assert.False(t, f.Has(config.SourceFile))
+	assert.False(t, f.Has(config.SourceEnv))
+	assert.False(t, f.Has(config.SourceFlag))
+	assert.Equal(t, "none", f.String())
+
+	// With sets bits without mutating the original.
+	f2 := f.With(config.SourceFile)
+	assert.False(t, f.Has(config.SourceFile), "With must not mutate receiver")
+	assert.True(t, f2.Has(config.SourceFile))
+	assert.False(t, f2.Has(config.SourceEnv))
+	assert.Equal(t, "file", f2.String())
+
+	// Multiple bits.
+	f3 := f2.With(config.SourceEnv).With(config.SourceFlag)
+	assert.True(t, f3.Has(config.SourceFile))
+	assert.True(t, f3.Has(config.SourceEnv))
+	assert.True(t, f3.Has(config.SourceFlag))
+	assert.Equal(t, "file|env|flag", f3.String())
+
+	// Constants are distinct single bits.
+	assert.NotEqual(t, config.SourceFile, config.SourceEnv)
+	assert.NotEqual(t, config.SourceEnv, config.SourceFlag)
+	assert.NotEqual(t, config.SourceFile, config.SourceFlag)
+}
+
+// ---------------------------------------------------------------------------
+// TestApplyFlag — verifies flag override logic
+// ---------------------------------------------------------------------------
+
+func TestApplyFlag(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Vault:   "envsecrets",
+		OpVault: "Envsecrets",
+		Sources: map[string]config.SourceState{
+			"vault":    {Active: "default"},
+			"op_vault": {Active: "file", Flags: config.SourceFile},
+		},
+	}
+
+	config.ApplyFlag(cfg, "op_vault", "MyVault")
+
+	// Value must be updated.
+	assert.Equal(t, "MyVault", cfg.OpVault)
+	// Active must be "flag", SourceFlag set, and FlagValue captured.
+	assert.Equal(t, "flag", cfg.Sources["op_vault"].Active)
+	assert.True(t, cfg.Sources["op_vault"].Flags.Has(config.SourceFlag))
+	assert.Equal(t, "MyVault", cfg.Sources["op_vault"].FlagValue)
+	// Pre-existing SourceFile bit must be preserved.
+	assert.True(t, cfg.Sources["op_vault"].Flags.Has(config.SourceFile))
+
+	// Unrelated fields must be unaffected.
+	assert.Equal(t, "envsecrets", cfg.Vault)
+	assert.Equal(t, "default", cfg.Sources["vault"].Active)
+	assert.False(t, cfg.Sources["vault"].Flags.Has(config.SourceFlag))
+}
+
+func TestApplyFlag_NilSources(t *testing.T) {
+	t.Parallel()
+
+	// Sources is nil — ApplyFlag must initialise the map.
+	cfg := &config.Config{Vault: "envsecrets"}
+
+	config.ApplyFlag(cfg, "vault", "newvault")
+
+	assert.Equal(t, "newvault", cfg.Vault)
+	require.NotNil(t, cfg.Sources)
+	assert.Equal(t, "flag", cfg.Sources["vault"].Active)
+	assert.True(t, cfg.Sources["vault"].Flags.Has(config.SourceFlag))
+	assert.Equal(t, "newvault", cfg.Sources["vault"].FlagValue)
+}
+
+// ---------------------------------------------------------------------------
+// TestGenerateConfigTemplate — verifies template content is derived from tags
+// ---------------------------------------------------------------------------
+
+func TestGenerateConfigTemplate(t *testing.T) {
+	t.Parallel()
+
+	tmpl := config.GenerateConfigTemplate()
+
+	// Must contain all four TOML keys.
+	assert.Contains(t, tmpl, "vault =")
+	assert.Contains(t, tmpl, "op_vault =")
+	assert.Contains(t, tmpl, "template =")
+	assert.Contains(t, tmpl, "output =")
+
+	// Must contain CLI flag names.
+	assert.Contains(t, tmpl, "--vault")
+	assert.Contains(t, tmpl, "--op-vault")
+	assert.Contains(t, tmpl, "--template")
+	assert.Contains(t, tmpl, "--output")
+
+	// Must contain environment variable names.
+	assert.Contains(t, tmpl, "ENVSECRETS_VAULT")
+	assert.Contains(t, tmpl, "ENVSECRETS_OP_VAULT")
+	assert.Contains(t, tmpl, "ENVSECRETS_TEMPLATE")
+	assert.Contains(t, tmpl, "ENVSECRETS_OUTPUT")
+
+	// Must contain default values (quoted TOML strings).
+	assert.Contains(t, tmpl, `"envsecrets"`)
+	assert.Contains(t, tmpl, `"Envsecrets"`)
+	assert.Contains(t, tmpl, `".env.tpl"`)
+	assert.Contains(t, tmpl, `".env"`)
 }

@@ -39,8 +39,6 @@ All commands share a package-level `cfg *config.Config` populated by `initConfig
 | Variable | Type | Description |
 |----------|------|-------------|
 | `configFile` | `string` | Value of `--config` flag |
-| `vaultFlag` | `string` | Value of `--vault` flag |
-| `opVaultFlag` | `string` | Value of `--op-vault` flag |
 | `cfg` | `*config.Config` | Fully resolved config; set by `initConfig()` before every command |
 
 ### `Execute() ` — `root.go`
@@ -49,60 +47,97 @@ Exported entry point called by `main`. Runs the root Cobra command; exits with c
 
 ### `initConfig()` — `root.go` (unexported)
 
-Calls `config.Load(configFile)`, then applies any `--vault` / `--op-vault` / `--template` / `--output` flag overrides to `cfg` and `cfg.Sources`. Called automatically by `cobra.OnInitialize` before any command's `RunE`.
+Calls `config.Load(configFile)`, then iterates `config.AllFields()` and calls `config.ApplyFlag()` for every flag whose `.Changed` is true. Global-scope flags are looked up on `rootCmd.PersistentFlags()`; `"gen-env"`-scope flags on `genEnvCmd.Flags()`. Called automatically by `cobra.OnInitialize` before any command's `RunE`.
 
 ### Command files
 
 | File | Command | Flags | Description |
 |------|---------|-------|-------------|
 | `config.go` | `config` | — | Parent command; groups config subcommands |
-| `config_init.go` | `config init` | — | Writes `~/.config/envsecrets.toml` from `defaultConfigContent`. Errors if file already exists. Prints tip about `op_vault`. |
-| `config_show.go` | `config show` | — | Prints all config options, their current values, and source (`flag` / `env` / `config file` / `default`) from `cfg.Sources`. |
+| `config_init.go` | `config init` | — | Writes `~/.config/envsecrets.toml` from `config.GenerateConfigTemplate()`. Errors if file already exists. Prints tip about `op_vault`. |
+| `config_show.go` | `config show` | `--verbose` / `-v` | Prints an emoji-grid table (compact default) or per-source blocks (`--verbose` / `-v`). Verbose mode: one block per setting, each source shows ✅ + value or 🚫 + `(not set)`, with `⬆️ superseded by …` on losing sources and `🏆 ← active` on the winner. Unexported helpers: `srcRow` (type), `verboseOutput()`, `supersededBy()`, `displayWidth()`, `padRight()`, `boolEmoji()`, `sourceCell()`. |
 | `store.go` | `store <key> <value>` | — | Writes a secret via `Manager.Set()`. Uses `cfg.Vault` + `cfg.OpVault`. |
 | `fetch.go` | `fetch <key>` | — | Reads a secret via `Manager.Get()`. Prints raw value to stdout (no newline). |
 | `update.go` | `update <key> <value>` | — | Semantic alias for `store`; calls `Manager.Update()`. |
 | `delete.go` | `delete <key>` | `--force` / `-f` | Deletes from both backends via `Manager.Delete()`. Prompts for confirmation unless `--force`. |
 | `sync.go` | `sync` | — | Pulls all items from the 1Password vault into Keychain via `Manager.Sync()`. Reports count. |
-| `gen_env.go` | `gen-env` | `--template` (default `.env.tpl`), `--output` (default `.env`) | Resolves `secret:` prefixed values in a template file via `Manager.Get()`; copies other lines verbatim. |
+| `gen_env.go` | `gen-env` | `--template` (default `.env.tpl`), `--output` (default `.env`) | Resolves `secret:` prefixed values in a template file via `Manager.Get()`; copies other lines verbatim. Flags registered dynamically from `config.ScopedFields("gen-env")`. |
 
 ---
 
 ## `internal/config/` — Configuration
 
-Single home for all viper logic. Viper is imported **only** in this package.
+Single home for all viper logic. Viper is imported **only** in this package. The `Config` struct is the single source of truth — struct tags drive flag registration, env var binding, default values, and config-file template generation. No setting needs to be specified in more than one place.
 
-### `Config` struct
+### `FieldMeta` struct
 
-Governs all resolved runtime configuration. The `cmd` layer reads from this after `Load` returns and after applying flag overrides.
+Parsed metadata for one configurable field. Returned by `AllFields()`, `GlobalFields()`, and `ScopedFields()`.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `Vault` | `string` | Name of the dedicated local keychain file. File lives at `~/.local/share/envsecrets/<Vault>.keychain`. Default: `"envsecrets"`. |
-| `OpVault` | `string` | 1Password vault name where secrets are stored. Default: `"Envsecrets"`. |
-| `Template` | `string` | Path to the `gen-env` template file. Default: `".env.tpl"`. |
-| `Output` | `string` | Path to the `gen-env` output file. Default: `".env"`. |
-| `FilePath` | `string` | Resolved path to the config file (may not exist on disk). |
-| `FileFound` | `bool` | True when the config file was found and successfully read. |
-| `Sources` | `Sources` | Per-field attribution of where each value came from. |
+| `FieldIndex` | `int` | Position of the field in the `Config` struct (used for reflection-based get/set). |
+| `FieldName` | `string` | Go field name, e.g. `"Vault"`. |
+| `Key` | `string` | TOML key and viper key, e.g. `"op_vault"`. |
+| `EnvVar` | `string` | Environment variable name, e.g. `"ENVSECRETS_OP_VAULT"`. |
+| `Flag` | `string` | Cobra flag name, e.g. `"op-vault"`. |
+| `Default` | `string` | Built-in default value. |
+| `Usage` | `string` | Flag help text and config file comment. |
+| `Scope` | `string` | `"global"` (registered on `rootCmd.PersistentFlags`) or `"gen-env"` (registered on `genEnvCmd.Flags`). |
 
-### `Sources` struct
+### `SourceFlags` type
 
-Records the origin of each `Config` field. Used by `config show`.
+A `byte` bitmask recording which sources contributed a value for one config field.
 
-| Field | Type | Possible values |
-|-------|------|-----------------|
-| `Vault` | `string` | `"default"`, `"config file"`, `"env ($ENVSECRETS_VAULT)"`, `"flag (--vault)"` |
-| `OpVault` | `string` | `"default"`, `"config file"`, `"env ($ENVSECRETS_OP_VAULT)"`, `"flag (--op-vault)"` |
-| `Template` | `string` | `"default"`, `"config file"`, `"env ($ENVSECRETS_TEMPLATE)"`, `"flag (--template)"` |
-| `Output` | `string` | `"default"`, `"config file"`, `"env ($ENVSECRETS_OUTPUT)"`, `"flag (--output)"` |
+| Symbol | Value | Meaning |
+|--------|-------|---------|
+| `SourceFile` | `1 << 0` | Key was explicitly present in the config file. |
+| `SourceEnv` | `1 << 1` | Env var was non-empty at load time. |
+| `SourceFlag` | `1 << 2` | CLI flag was explicitly provided on the command line. |
+
+| Method | Description |
+|--------|-------------|
+| `(f SourceFlags) Has(flag SourceFlags) bool` | Reports whether `flag` bits are set in `f`. |
+| `(f SourceFlags) With(flag SourceFlags) SourceFlags` | Returns a copy of `f` with `flag` bits set. Does not mutate `f`. |
+| `(f SourceFlags) String() string` | Returns `"none"`, `"file"`, `"env|flag"`, etc. for debugging and test output. |
+
+### `SourceState` struct
+
+Records which sources contributed a value for one config field and which is winning.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Flags` | `SourceFlags` | Bitmask of set sources. Use `Flags.Has(SourceFile)` etc. |
+| `Active` | `string` | Winning source: `"default"` \| `"file"` \| `"env"` \| `"flag"`. |
+| `FileValue` | `string` | Value as read from the config file; empty when `SourceFile` is not set. Populated by `Load()`. |
+| `EnvValue` | `string` | Value of the env var at load time; empty when `SourceEnv` is not set. Populated by `Load()`. |
+| `FlagValue` | `string` | Value passed via CLI flag; empty when `SourceFlag` is not set. Populated by `ApplyFlag()`. |
+
+### `Config` struct
+
+Governs all resolved runtime configuration. The four configurable fields carry struct tags that drive the entire config system. The `cmd` layer reads from this after `Load` returns and after `ApplyFlag` calls.
+
+| Field | Type | Struct tags | Description |
+|-------|------|-------------|-------------|
+| `Vault` | `string` | `cfg:"vault" env:"ENVSECRETS_VAULT" flag:"vault" default:"envsecrets" scope:"global"` | Name of the dedicated local keychain file. File lives at `~/.local/share/envsecrets/<Vault>.keychain`. |
+| `OpVault` | `string` | `cfg:"op_vault" env:"ENVSECRETS_OP_VAULT" flag:"op-vault" default:"Envsecrets" scope:"global"` | 1Password vault name where secrets are stored. |
+| `Template` | `string` | `cfg:"template" env:"ENVSECRETS_TEMPLATE" flag:"template" default:".env.tpl" scope:"gen-env"` | Path to the `gen-env` template file. |
+| `Output` | `string` | `cfg:"output" env:"ENVSECRETS_OUTPUT" flag:"output" default:".env" scope:"gen-env"` | Path to the `gen-env` output file. |
+| `FilePath` | `string` | — | Resolved path to the config file (may not exist on disk). Not iterated by `AllFields`. |
+| `FileFound` | `bool` | — | True when the config file was found and successfully read. Not iterated by `AllFields`. |
+| `Sources` | `map[string]SourceState` | — | Per-field source attribution, keyed by the `cfg` tag value (e.g. `"vault"`). Not iterated by `AllFields`. |
 
 ### Functions
 
 | Signature | Description |
 |-----------|-------------|
-| `Load(configFlagValue string) *Config` | Resolves the config file path (`--config` flag → `$ENVSECRETS_CONFIG` → `~/.config/envsecrets.toml`), binds env vars, sets defaults, reads the TOML file, attributes sources, and returns a fully-populated `*Config`. Does **not** apply flag overrides — the `cmd` layer does that. |
-| `resolvePath(configFlagValue string) string` *(unexported)* | Returns the config file path to use, honouring `--config` flag → `$ENVSECRETS_CONFIG` → default. |
-| `sourceOf(key, envVar string, fileKeys map[string]bool) string` *(unexported)* | Returns `"default"`, `"config file"`, or `"env ($VAR)"` for a config key based on whether the env var is set or the key appears in the file. |
+| `AllFields() []FieldMeta` | Returns `FieldMeta` for every struct field that has a `cfg` tag (currently 4: vault, op\_vault, template, output). Fields without a `cfg` tag are skipped. |
+| `GlobalFields() []FieldMeta` | Subset of `AllFields()` where `Scope == "global"`. Used by `root.go` for `PersistentFlags` registration. |
+| `ScopedFields(scope string) []FieldMeta` | Subset of `AllFields()` where `Scope == scope`. Used by `gen_env.go` with `"gen-env"`. |
+| `GetValue(cfg *Config, key string) string` | Returns the current string value of the `Config` field whose `cfg` tag equals `key`. Used by `config show` to retrieve each field's resolved value. |
+| `ApplyFlag(cfg *Config, key, value string)` | Sets the `Config` field identified by `key` to `value`, sets `SourceFlag` bit on `cfg.Sources[key].Flags`, captures `FlagValue`, and sets `Active="flag"`. Called by `initConfig` for every changed CLI flag. |
+| `Load(configFlagValue string) *Config` | Resolves the config file path (`--config` flag → `$ENVSECRETS_CONFIG` → `~/.config/envsecrets.toml`), binds env vars and defaults from struct tags, reads the TOML file, populates all fields via reflection, and returns a fully-populated `*Config`. Does **not** apply flag overrides — the `cmd` layer calls `ApplyFlag` for that. |
+| `GenerateConfigTemplate() string` | Returns a documented TOML config file string, generated dynamically from struct tags. Each field gets a comment block with usage text, CLI flag name, and env var name. Used by `config init`. |
+| `resolvePath(configFlagValue string) string` *(unexported)* | Returns the config file path to use, honouring `--config` flag → `$ENVSECRETS_CONFIG` → default (`~/.config/envsecrets.toml`). |
 
 ---
 
@@ -181,7 +216,7 @@ Governs all operations against a single named 1Password vault.
 |-----------|-------------|
 | `New(vault string) *Client` | Constructs a `Client` for the given vault. |
 | `(c *Client) Available(ctx context.Context) bool` | Returns `true` if `op` is on `$PATH` and `op account list` exits 0 (app running and signed in). |
-| `(c *Client) EnsureVault(ctx context.Context) (bool, error)` | Lists vaults via `op vault list --format json`. Creates the vault if absent (`true, nil`). Also writes an access-details file to `~/Documents`. |
+| `(c *Client) EnsureVault(ctx context.Context) (bool, error)` | Checks vault existence with `op vault get <name>` (exit-code only — no JSON parsing). Creates the vault if absent (`true, nil`); returns `(false, nil)` if it already exists. Also writes an access-details file to `~/Documents` on creation. |
 | `(c *Client) Get(ctx context.Context, key string) (string, error)` | Reads `op://<Vault>/<key>/password`. Returns `ErrNotFound` or `ErrUnavailable` as appropriate. |
 | `(c *Client) Set(ctx context.Context, key, value string) error` | Edit-first, then create if `ErrNotFound`. |
 | `(c *Client) Delete(ctx context.Context, key string) error` | Removes the Login item whose title is `key`. |
