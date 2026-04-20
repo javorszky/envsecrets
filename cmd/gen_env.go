@@ -6,13 +6,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/javorszky/envsecrets/internal/config"
 	"github.com/javorszky/envsecrets/internal/secrets"
 	"github.com/spf13/cobra"
-)
-
-var (
-	templateFlag string
-	outputFlag   string
 )
 
 var genEnvCmd = &cobra.Command{
@@ -115,6 +111,7 @@ Examples:
 func init() {
 	rootCmd.AddCommand(genEnvCmd)
 
-	genEnvCmd.Flags().StringVar(&templateFlag, "template", "", `template file path (default: ".env.tpl", or $ENVSECRETS_TEMPLATE, or config file)`)
-	genEnvCmd.Flags().StringVar(&outputFlag, "output", "", `output file path (default: ".env", or $ENVSECRETS_OUTPUT, or config file)`)
+	for _, m := range config.ScopedFields("gen-env") {
+		genEnvCmd.Flags().String(m.Flag, "", m.Usage)
+	}
 }

@@ -9,10 +9,8 @@ import (
 )
 
 var (
-	configFile  string
-	vaultFlag   string
-	opVaultFlag string
-	cfg         *config.Config
+	configFile string
+	cfg        *config.Config
 )
 
 var rootCmd = &cobra.Command{
@@ -42,14 +40,9 @@ func init() {
 		&configFile, "config", "",
 		`config file path (default: ~/.config/envsecrets.toml, or $ENVSECRETS_CONFIG)`,
 	)
-	rootCmd.PersistentFlags().StringVar(
-		&vaultFlag, "vault", "",
-		`keychain file name (default: "envsecrets", or $ENVSECRETS_VAULT, or config file)`,
-	)
-	rootCmd.PersistentFlags().StringVar(
-		&opVaultFlag, "op-vault", "",
-		`1Password vault name (default: "Envsecrets", or $ENVSECRETS_OP_VAULT, or config file)`,
-	)
+	for _, m := range config.GlobalFields() {
+		rootCmd.PersistentFlags().String(m.Flag, "", m.Usage)
+	}
 }
 
 // initConfig loads configuration from file and environment variables, then
@@ -59,22 +52,18 @@ func initConfig() {
 	cfg = config.Load(configFile)
 
 	// Apply CLI flag overrides — highest priority, beats env vars and config file.
-	// Flags for --template and --output (owned by genEnvCmd) are applied here
-	// too, since initConfig runs after all flags are parsed.
-	if rootCmd.PersistentFlags().Lookup("vault").Changed {
-		cfg.Vault = vaultFlag
-		cfg.Sources.Vault = "flag (--vault)"
-	}
-	if rootCmd.PersistentFlags().Lookup("op-vault").Changed {
-		cfg.OpVault = opVaultFlag
-		cfg.Sources.OpVault = "flag (--op-vault)"
-	}
-	if genEnvCmd.Flags().Lookup("template").Changed {
-		cfg.Template = templateFlag
-		cfg.Sources.Template = "flag (--template)"
-	}
-	if genEnvCmd.Flags().Lookup("output").Changed {
-		cfg.Output = outputFlag
-		cfg.Sources.Output = "flag (--output)"
+	// Each FieldMeta knows its flag name and scope, so we can look up the flag
+	// on the correct FlagSet and call ApplyFlag when the user explicitly passed it.
+	for _, m := range config.AllFields() {
+		switch m.Scope {
+		case "global":
+			if f := rootCmd.PersistentFlags().Lookup(m.Flag); f != nil && f.Changed {
+				config.ApplyFlag(cfg, m.Key, f.Value.String())
+			}
+		case "gen-env":
+			if f := genEnvCmd.Flags().Lookup(m.Flag); f != nil && f.Changed {
+				config.ApplyFlag(cfg, m.Key, f.Value.String())
+			}
+		}
 	}
 }
