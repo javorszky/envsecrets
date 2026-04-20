@@ -36,6 +36,17 @@ const (
 	SourceFlag
 )
 
+// ActiveSource identifies which configuration source is currently active
+// (highest-priority) for a single config field.
+type ActiveSource uint8
+
+const (
+	ActiveDefault ActiveSource = iota // built-in default; no file/env/flag present
+	ActiveFile                        // config file value is active
+	ActiveEnv                         // environment variable is active
+	ActiveFlag                        // CLI flag is active
+)
+
 // Has reports whether all bits in flag are set in f.
 func (f SourceFlags) Has(flag SourceFlags) bool {
 	return f&flag != 0
@@ -73,11 +84,11 @@ func (f SourceFlags) String() string {
 // SourceState records which sources have a value for a single config field
 // and which source is currently active (highest priority).
 type SourceState struct {
-	Flags     SourceFlags // bitmask: SourceFile | SourceEnv | SourceFlag
-	Active    string      // "default" | "file" | "env" | "flag"
-	FileValue string      // value as read from config file; empty when SourceFile is not set
-	EnvValue  string      // value of the env var at load time; empty when SourceEnv is not set
-	FlagValue string      // value passed via CLI flag; empty when SourceFlag is not set
+	Flags     SourceFlags  // bitmask: SourceFile | SourceEnv | SourceFlag
+	Active    ActiveSource // which source wins (highest-priority non-zero source)
+	FileValue string       // value as read from config file; empty when SourceFile is not set
+	EnvValue  string       // value of the env var at load time; empty when SourceEnv is not set
+	FlagValue string       // value passed via CLI flag; empty when SourceFlag is not set
 }
 
 // Config holds all resolved configuration for the application.
@@ -126,15 +137,7 @@ func AllFields() []FieldMeta {
 
 // GlobalFields returns the subset of AllFields where Scope == "global".
 func GlobalFields() []FieldMeta {
-	var out []FieldMeta
-
-	for _, m := range AllFields() {
-		if m.Scope == "global" {
-			out = append(out, m)
-		}
-	}
-
-	return out
+	return ScopedFields("global")
 }
 
 // ScopedFields returns the subset of AllFields where Scope == scope.
@@ -150,18 +153,9 @@ func ScopedFields(scope string) []FieldMeta {
 	return out
 }
 
-// GetValue returns the current string value of the Config field identified by key.
-func GetValue(cfg *Config, key string) string {
-	v := reflect.ValueOf(cfg).Elem()
-	t := v.Type()
-
-	for i := 0; i < t.NumField(); i++ {
-		if t.Field(i).Tag.Get("cfg") == key {
-			return v.Field(i).String()
-		}
-	}
-
-	return ""
+// GetValue returns the current string value of the Config field described by m.
+func GetValue(cfg *Config, m FieldMeta) string {
+	return reflect.ValueOf(cfg).Elem().Field(m.FieldIndex).String()
 }
 
 // ApplyFlag sets the Config field identified by key to value, marks FlagSet=true,
@@ -184,7 +178,7 @@ func ApplyFlag(cfg *Config, key, value string) {
 
 	s := cfg.Sources[key]
 	s.Flags = s.Flags.With(SourceFlag)
-	s.Active = "flag"
+	s.Active = ActiveFlag
 	s.FlagValue = value
 	cfg.Sources[key] = s
 }
@@ -280,11 +274,11 @@ func Load(configFlagValue string) *Config {
 
 		switch {
 		case flags.Has(SourceEnv):
-			state.Active = "env"
+			state.Active = ActiveEnv
 		case flags.Has(SourceFile):
-			state.Active = "file"
+			state.Active = ActiveFile
 		default:
-			state.Active = "default"
+			state.Active = ActiveDefault
 		}
 
 		cfg.Sources[m.Key] = state

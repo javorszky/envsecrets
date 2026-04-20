@@ -58,7 +58,7 @@ func (c *Client) Get(ctx context.Context, key string) (string, error) {
 
 	out, err := cmd.Output()
 	if err != nil {
-		return "", c.classifyError(key, err)
+		return "", classifyError(key, err)
 	}
 
 	return strings.TrimRight(string(out), "\n"), nil
@@ -91,7 +91,7 @@ func (c *Client) Delete(ctx context.Context, key string) error {
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return c.classifyErrorWithOutput(key, err, out)
+		return classifyErrorWithOutput(key, err, out)
 	}
 
 	return nil
@@ -121,7 +121,7 @@ func (c *Client) EnsureVault(ctx context.Context) (bool, error) {
 
 	// Write an access-details file to ~/Documents. Best-effort.
 	if err := c.writeAccessFile(); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr,
+		fmt.Fprintf(os.Stderr,
 			"warning: could not write 1Password access file: %v\n", err)
 	}
 
@@ -181,17 +181,17 @@ func (c *Client) edit(ctx context.Context, key, value string) error {
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return c.classifyErrorWithOutput(key, err, out)
+		return classifyErrorWithOutput(key, err, out)
 	}
 
 	return nil
 }
 
-func (c *Client) classifyError(key string, err error) error {
-	return c.classifyErrorWithOutput(key, err, nil)
+func classifyError(key string, err error) error {
+	return classifyErrorWithOutput(key, err, nil)
 }
 
-func (c *Client) classifyErrorWithOutput(key string, err error, out []byte) error {
+func classifyErrorWithOutput(key string, err error, out []byte) error {
 	msg := strings.ToLower(string(out))
 
 	if strings.Contains(msg, "isn't an item") ||
@@ -246,7 +246,7 @@ To access your secrets without the envsecrets CLI:
 		return fmt.Errorf("writing access file: %w", err)
 	}
 
-	_, _ = fmt.Fprintf(os.Stderr,
+	fmt.Fprintf(os.Stderr,
 		"info: 1Password vault access details written to %s\n",
 		path,
 	)

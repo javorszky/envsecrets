@@ -28,10 +28,10 @@ Override the location with --config or $ENVSECRETS_CONFIG.`,
 			return fmt.Errorf("writing config file %q: %w", path, err)
 		}
 
-		_, _ = fmt.Fprintf(os.Stdout, "✓ config file written: %s\n", path)
-		_, _ = fmt.Fprintln(os.Stdout)
-		_, _ = fmt.Fprintln(os.Stdout, "💡 Tip: the default op_vault \"Envsecrets\" will be created automatically")
-		_, _ = fmt.Fprintln(os.Stdout, "   on first write. Change it in the config file if you prefer a different name.")
+		fmt.Fprintf(os.Stdout, "✓ config file written: %s\n", path)
+		fmt.Fprintln(os.Stdout)
+		fmt.Fprintln(os.Stdout, "💡 Tip: the default op_vault \"Envsecrets\" will be created automatically")
+		fmt.Fprintln(os.Stdout, "   on first write. Change it in the config file if you prefer a different name.")
 		return nil
 	},
 }
