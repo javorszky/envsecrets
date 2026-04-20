@@ -305,6 +305,38 @@ func TestLoad_EnvsecretsCfgEnvVar(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// TestLoad_SourceValues — FileValue and EnvValue are captured in SourceState
+// ---------------------------------------------------------------------------
+
+func TestLoad_SourceValues(t *testing.T) {
+	// Not parallel: manipulates env vars.
+	t.Setenv("ENVSECRETS_VAULT", "")
+	t.Setenv("ENVSECRETS_OP_VAULT", "")
+	t.Setenv("ENVSECRETS_TEMPLATE", "")
+	t.Setenv("ENVSECRETS_OUTPUT", "")
+	t.Setenv("ENVSECRETS_CONFIG", "")
+
+	cfgPath := writeTempConfig(t, `vault = "filekc"`+"\n")
+	t.Setenv("ENVSECRETS_OP_VAULT", "EnvOP")
+
+	cfg := config.Load(cfgPath)
+
+	// vault was set in the config file.
+	assert.True(t, cfg.Sources["vault"].Flags.Has(config.SourceFile))
+	assert.Equal(t, "filekc", cfg.Sources["vault"].FileValue)
+
+	// op_vault was set via env var.
+	assert.True(t, cfg.Sources["op_vault"].Flags.Has(config.SourceEnv))
+	assert.Equal(t, "EnvOP", cfg.Sources["op_vault"].EnvValue)
+
+	// template was not set by file or env — values must be empty.
+	assert.False(t, cfg.Sources["template"].Flags.Has(config.SourceFile))
+	assert.False(t, cfg.Sources["template"].Flags.Has(config.SourceEnv))
+	assert.Empty(t, cfg.Sources["template"].FileValue)
+	assert.Empty(t, cfg.Sources["template"].EnvValue)
+}
+
+// ---------------------------------------------------------------------------
 // TestAllFields — verifies struct tag reflection
 // ---------------------------------------------------------------------------
 
@@ -355,6 +387,41 @@ func TestAllFields(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// TestSourceFlags — bitmask type, constants, and methods
+// ---------------------------------------------------------------------------
+
+func TestSourceFlags(t *testing.T) {
+	t.Parallel()
+
+	var f config.SourceFlags
+
+	// Zero value has no bits set.
+	assert.False(t, f.Has(config.SourceFile))
+	assert.False(t, f.Has(config.SourceEnv))
+	assert.False(t, f.Has(config.SourceFlag))
+	assert.Equal(t, "none", f.String())
+
+	// With sets bits without mutating the original.
+	f2 := f.With(config.SourceFile)
+	assert.False(t, f.Has(config.SourceFile), "With must not mutate receiver")
+	assert.True(t, f2.Has(config.SourceFile))
+	assert.False(t, f2.Has(config.SourceEnv))
+	assert.Equal(t, "file", f2.String())
+
+	// Multiple bits.
+	f3 := f2.With(config.SourceEnv).With(config.SourceFlag)
+	assert.True(t, f3.Has(config.SourceFile))
+	assert.True(t, f3.Has(config.SourceEnv))
+	assert.True(t, f3.Has(config.SourceFlag))
+	assert.Equal(t, "file|env|flag", f3.String())
+
+	// Constants are distinct single bits.
+	assert.NotEqual(t, config.SourceFile, config.SourceEnv)
+	assert.NotEqual(t, config.SourceEnv, config.SourceFlag)
+	assert.NotEqual(t, config.SourceFile, config.SourceFlag)
+}
+
+// ---------------------------------------------------------------------------
 // TestApplyFlag — verifies flag override logic
 // ---------------------------------------------------------------------------
 
@@ -366,7 +433,7 @@ func TestApplyFlag(t *testing.T) {
 		OpVault: "Envsecrets",
 		Sources: map[string]config.SourceState{
 			"vault":    {Active: "default"},
-			"op_vault": {Active: "file", FileSet: true},
+			"op_vault": {Active: "file", Flags: config.SourceFile},
 		},
 	}
 
@@ -374,16 +441,17 @@ func TestApplyFlag(t *testing.T) {
 
 	// Value must be updated.
 	assert.Equal(t, "MyVault", cfg.OpVault)
-	// Active must be "flag" and FlagSet must be true.
+	// Active must be "flag", SourceFlag set, and FlagValue captured.
 	assert.Equal(t, "flag", cfg.Sources["op_vault"].Active)
-	assert.True(t, cfg.Sources["op_vault"].FlagSet)
-	// Pre-existing FileSet must be preserved.
-	assert.True(t, cfg.Sources["op_vault"].FileSet)
+	assert.True(t, cfg.Sources["op_vault"].Flags.Has(config.SourceFlag))
+	assert.Equal(t, "MyVault", cfg.Sources["op_vault"].FlagValue)
+	// Pre-existing SourceFile bit must be preserved.
+	assert.True(t, cfg.Sources["op_vault"].Flags.Has(config.SourceFile))
 
 	// Unrelated fields must be unaffected.
 	assert.Equal(t, "envsecrets", cfg.Vault)
 	assert.Equal(t, "default", cfg.Sources["vault"].Active)
-	assert.False(t, cfg.Sources["vault"].FlagSet)
+	assert.False(t, cfg.Sources["vault"].Flags.Has(config.SourceFlag))
 }
 
 func TestApplyFlag_NilSources(t *testing.T) {
@@ -397,7 +465,8 @@ func TestApplyFlag_NilSources(t *testing.T) {
 	assert.Equal(t, "newvault", cfg.Vault)
 	require.NotNil(t, cfg.Sources)
 	assert.Equal(t, "flag", cfg.Sources["vault"].Active)
-	assert.True(t, cfg.Sources["vault"].FlagSet)
+	assert.True(t, cfg.Sources["vault"].Flags.Has(config.SourceFlag))
+	assert.Equal(t, "newvault", cfg.Sources["vault"].FlagValue)
 }
 
 // ---------------------------------------------------------------------------

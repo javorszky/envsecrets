@@ -14,18 +14,28 @@ var configShowCmd = &cobra.Command{
 	Short: "Print all configuration values and their sources",
 	Long: `Print every configuration option, its current effective value, and
 which sources contributed to it — default, config file, environment variable,
-or CLI flag — with an emoji grid showing which source is active (🏆).`,
+or CLI flag — with an emoji grid showing which source is active (🏆).
+
+With --verbose / -v: expand each option into a full block showing the value
+(✅) or "(not set)" (🚫) for every source, and annotate lower-priority sources
+with "⬆️ superseded by ..." so it is immediately clear why the effective value
+is what it is.`,
 	Args: cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
-		// Config file status line.
+		// Config file status line (shared by both modes).
 		if cfg.FileFound {
 			_, _ = fmt.Fprintf(os.Stdout, "Config file: %s\n\n", cfg.FilePath)
 		} else {
 			_, _ = fmt.Fprintf(os.Stdout, "Config file: %s (not found, using defaults)\n\n", cfg.FilePath)
 		}
 
-		// Column widths (display chars):
-		//   option : 12   source columns : 10 each   value: rest
+		verbose, _ := cmd.Flags().GetBool("verbose")
+		if verbose {
+			verboseOutput()
+			return
+		}
+
+		// Compact grid (default).
 		const (
 			wOption = 12
 			wSource = 10
@@ -44,9 +54,9 @@ or CLI flag — with an emoji grid showing which source is active (🏆).`,
 			value := config.GetValue(cfg, m.Key)
 
 			defCell := sourceCell("📦", state.Active == "default")
-			fileCell := sourceCell(boolEmoji(state.FileSet), state.Active == "file")
-			envCell := sourceCell(boolEmoji(state.EnvSet), state.Active == "env")
-			flagCell := sourceCell(boolEmoji(state.FlagSet), state.Active == "flag")
+			fileCell := sourceCell(boolEmoji(state.Flags.Has(config.SourceFile)), state.Active == "file")
+			envCell := sourceCell(boolEmoji(state.Flags.Has(config.SourceEnv)), state.Active == "env")
+			flagCell := sourceCell(boolEmoji(state.Flags.Has(config.SourceFlag)), state.Active == "flag")
 
 			_, _ = fmt.Fprintf(os.Stdout, "%s  %s  %s  %s  %s  %s\n",
 				padRight(m.Key, wOption),
@@ -62,6 +72,119 @@ or CLI flag — with an emoji grid showing which source is active (🏆).`,
 
 func init() {
 	configCmd.AddCommand(configShowCmd)
+	configShowCmd.Flags().BoolP("verbose", "v", false, "show full per-source details with supersession annotations")
+}
+
+// --- verbose output ---------------------------------------------------------
+
+// srcRow holds one source line's display data for verbose config output.
+// Declared at package level so verboseOutput and supersededBy share the type.
+type srcRow struct {
+	emoji     string
+	label     string
+	isSet     bool
+	identVal  string // shown when isSet is true  (e.g. `✅  vault = "myproject"`)
+	notSetVal string // shown when isSet is false (e.g. `🚫  ENVSECRETS_VAULT (not set)`)
+}
+
+// verboseOutput prints a full per-option block for every config field.
+// For each source it shows ✅ + value or 🚫 + "(not set)", and annotates
+// set-but-losing sources with "⬆️ superseded by <next higher set source>".
+func verboseOutput() {
+	const (
+		wLabel = 12 // "config file" is 11 display chars; pad to 12
+		wIdent = 46 // wide enough for "✅  ENVSECRETS_OP_VAULT = \"some-value\""
+	)
+
+	sep := strings.Repeat("─", 66)
+
+	for _, m := range config.AllFields() {
+		state := cfg.Sources[m.Key]
+
+		_, _ = fmt.Fprintln(os.Stdout, sep)
+		_, _ = fmt.Fprintln(os.Stdout, m.Key)
+
+		rows := []srcRow{
+			{
+				emoji:    "📦",
+				label:    "default",
+				isSet:    true,
+				identVal: "✅  " + fmt.Sprintf("%q", m.Default),
+			},
+			{
+				emoji:     "📄",
+				label:     "config file",
+				isSet:     state.Flags.Has(config.SourceFile),
+				identVal:  "✅  " + fmt.Sprintf("%s = %q", m.Key, state.FileValue),
+				notSetVal: "🚫  (not set)",
+			},
+			{
+				emoji:     "🌿",
+				label:     "env var",
+				isSet:     state.Flags.Has(config.SourceEnv),
+				identVal:  "✅  " + fmt.Sprintf("%s = %q", m.EnvVar, state.EnvValue),
+				notSetVal: "🚫  " + m.EnvVar + " (not set)",
+			},
+			{
+				emoji:     "🚩",
+				label:     "cli flag",
+				isSet:     state.Flags.Has(config.SourceFlag),
+				identVal:  "✅  " + fmt.Sprintf("--%s = %q", m.Flag, state.FlagValue),
+				notSetVal: "🚫  --" + m.Flag + " (not set)",
+			},
+		}
+
+		for i, row := range rows {
+			labelCell := padRight(row.label, wLabel)
+
+			if !row.isSet {
+				_, _ = fmt.Fprintf(os.Stdout, "  %s  %s  %s\n",
+					row.emoji,
+					labelCell,
+					row.notSetVal,
+				)
+				continue
+			}
+
+			identCell := padRight(row.identVal, wIdent)
+			status := supersededBy(rows, i, m)
+			if status == "" {
+				status = "🏆 ← active"
+			}
+
+			_, _ = fmt.Fprintf(os.Stdout, "  %s  %s  %s  %s\n",
+				row.emoji,
+				labelCell,
+				identCell,
+				status,
+			)
+		}
+
+		_, _ = fmt.Fprintln(os.Stdout)
+	}
+
+	_, _ = fmt.Fprintln(os.Stdout, sep)
+}
+
+// supersededBy returns "⬆️ superseded by <label> (<identifier>)" if any
+// higher-priority set source exists above index i in rows, otherwise "".
+func supersededBy(rows []srcRow, i int, m config.FieldMeta) string {
+	for j := i + 1; j < len(rows); j++ {
+		if !rows[j].isSet {
+			continue
+		}
+
+		switch rows[j].label {
+		case "config file":
+			return "⬆️ superseded by config file"
+		case "env var":
+			return fmt.Sprintf("⬆️ superseded by env var (%s)", m.EnvVar)
+		case "cli flag":
+			return fmt.Sprintf("⬆️ superseded by cli flag (--%s)", m.Flag)
+		}
+	}
+
+	return ""
 }
 
 // --- display helpers --------------------------------------------------------

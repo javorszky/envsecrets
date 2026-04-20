@@ -55,7 +55,7 @@ Calls `config.Load(configFile)`, then iterates `config.AllFields()` and calls `c
 |------|---------|-------|-------------|
 | `config.go` | `config` | — | Parent command; groups config subcommands |
 | `config_init.go` | `config init` | — | Writes `~/.config/envsecrets.toml` from `config.GenerateConfigTemplate()`. Errors if file already exists. Prints tip about `op_vault`. |
-| `config_show.go` | `config show` | — | Prints an emoji-grid table: one row per setting, columns for 📦 default / 📄 file / 🌿 env / 🚩 flag, 🏆 marks the winning source. Iterates `config.AllFields()` and `config.GetValue()`. |
+| `config_show.go` | `config show` | `--verbose` / `-v` | Prints an emoji-grid table (compact default) or per-source blocks (`--verbose` / `-v`). Verbose mode: one block per setting, each source shows ✅ + value or 🚫 + `(not set)`, with `⬆️ superseded by …` on losing sources and `🏆 ← active` on the winner. Unexported helpers: `srcRow` (type), `verboseOutput()`, `supersededBy()`, `displayWidth()`, `padRight()`, `boolEmoji()`, `sourceCell()`. |
 | `store.go` | `store <key> <value>` | — | Writes a secret via `Manager.Set()`. Uses `cfg.Vault` + `cfg.OpVault`. |
 | `fetch.go` | `fetch <key>` | — | Reads a secret via `Manager.Get()`. Prints raw value to stdout (no newline). |
 | `update.go` | `update <key> <value>` | — | Semantic alias for `store`; calls `Manager.Update()`. |
@@ -84,16 +84,33 @@ Parsed metadata for one configurable field. Returned by `AllFields()`, `GlobalFi
 | `Usage` | `string` | Flag help text and config file comment. |
 | `Scope` | `string` | `"global"` (registered on `rootCmd.PersistentFlags`) or `"gen-env"` (registered on `genEnvCmd.Flags`). |
 
+### `SourceFlags` type
+
+A `byte` bitmask recording which sources contributed a value for one config field.
+
+| Symbol | Value | Meaning |
+|--------|-------|---------|
+| `SourceFile` | `1 << 0` | Key was explicitly present in the config file. |
+| `SourceEnv` | `1 << 1` | Env var was non-empty at load time. |
+| `SourceFlag` | `1 << 2` | CLI flag was explicitly provided on the command line. |
+
+| Method | Description |
+|--------|-------------|
+| `(f SourceFlags) Has(flag SourceFlags) bool` | Reports whether `flag` bits are set in `f`. |
+| `(f SourceFlags) With(flag SourceFlags) SourceFlags` | Returns a copy of `f` with `flag` bits set. Does not mutate `f`. |
+| `(f SourceFlags) String() string` | Returns `"none"`, `"file"`, `"env|flag"`, etc. for debugging and test output. |
+
 ### `SourceState` struct
 
 Records which sources contributed a value for one config field and which is winning.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `FileSet` | `bool` | Key was present in the config file. |
-| `EnvSet` | `bool` | Env var is set in the current process environment. |
-| `FlagSet` | `bool` | Cobra flag was explicitly passed on the command line. |
+| `Flags` | `SourceFlags` | Bitmask of set sources. Use `Flags.Has(SourceFile)` etc. |
 | `Active` | `string` | Winning source: `"default"` \| `"file"` \| `"env"` \| `"flag"`. |
+| `FileValue` | `string` | Value as read from the config file; empty when `SourceFile` is not set. Populated by `Load()`. |
+| `EnvValue` | `string` | Value of the env var at load time; empty when `SourceEnv` is not set. Populated by `Load()`. |
+| `FlagValue` | `string` | Value passed via CLI flag; empty when `SourceFlag` is not set. Populated by `ApplyFlag()`. |
 
 ### `Config` struct
 
@@ -117,7 +134,7 @@ Governs all resolved runtime configuration. The four configurable fields carry s
 | `GlobalFields() []FieldMeta` | Subset of `AllFields()` where `Scope == "global"`. Used by `root.go` for `PersistentFlags` registration. |
 | `ScopedFields(scope string) []FieldMeta` | Subset of `AllFields()` where `Scope == scope`. Used by `gen_env.go` with `"gen-env"`. |
 | `GetValue(cfg *Config, key string) string` | Returns the current string value of the `Config` field whose `cfg` tag equals `key`. Used by `config show` to retrieve each field's resolved value. |
-| `ApplyFlag(cfg *Config, key, value string)` | Sets the `Config` field identified by `key` to `value`, sets `FlagSet=true`, and sets `Active="flag"` on `cfg.Sources[key]`. Called by `initConfig` for every changed CLI flag. |
+| `ApplyFlag(cfg *Config, key, value string)` | Sets the `Config` field identified by `key` to `value`, sets `SourceFlag` bit on `cfg.Sources[key].Flags`, captures `FlagValue`, and sets `Active="flag"`. Called by `initConfig` for every changed CLI flag. |
 | `Load(configFlagValue string) *Config` | Resolves the config file path (`--config` flag → `$ENVSECRETS_CONFIG` → `~/.config/envsecrets.toml`), binds env vars and defaults from struct tags, reads the TOML file, populates all fields via reflection, and returns a fully-populated `*Config`. Does **not** apply flag overrides — the `cmd` layer calls `ApplyFlag` for that. |
 | `GenerateConfigTemplate() string` | Returns a documented TOML config file string, generated dynamically from struct tags. Each field gets a comment block with usage text, CLI flag name, and env var name. Used by `config init`. |
 | `resolvePath(configFlagValue string) string` *(unexported)* | Returns the config file path to use, honouring `--config` flag → `$ENVSECRETS_CONFIG` → default (`~/.config/envsecrets.toml`). |

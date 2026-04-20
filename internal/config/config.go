@@ -22,13 +22,62 @@ type FieldMeta struct {
 	Scope      string // "global" → PersistentFlags on root; "gen-env" → Flags on genEnvCmd
 }
 
+// SourceFlags is a bitmask that records which sources have contributed a value
+// for a single config field. Use the SourceFile / SourceEnv / SourceFlag
+// constants and the Has / With methods rather than manipulating bits directly.
+type SourceFlags byte
+
+const (
+	// SourceFile is set when the key is explicitly present in the config file.
+	SourceFile SourceFlags = 1 << iota
+	// SourceEnv is set when the corresponding environment variable is non-empty.
+	SourceEnv
+	// SourceFlag is set when the CLI flag was explicitly provided by the user.
+	SourceFlag
+)
+
+// Has reports whether all bits in flag are set in f.
+func (f SourceFlags) Has(flag SourceFlags) bool {
+	return f&flag != 0
+}
+
+// With returns a copy of f with the bits in flag set.
+func (f SourceFlags) With(flag SourceFlags) SourceFlags {
+	return f | flag
+}
+
+// String returns a human-readable description of the set flags, e.g. "file|env".
+// Returns "none" when no flags are set. Used in test failure messages.
+func (f SourceFlags) String() string {
+	if f == 0 {
+		return "none"
+	}
+
+	var parts []string
+
+	if f.Has(SourceFile) {
+		parts = append(parts, "file")
+	}
+
+	if f.Has(SourceEnv) {
+		parts = append(parts, "env")
+	}
+
+	if f.Has(SourceFlag) {
+		parts = append(parts, "flag")
+	}
+
+	return strings.Join(parts, "|")
+}
+
 // SourceState records which sources have a value for a single config field
 // and which source is currently active (highest priority).
 type SourceState struct {
-	FileSet bool   // key was present in the config file
-	EnvSet  bool   // env var is set in the current process environment
-	FlagSet bool   // cobra flag was explicitly provided on the command line
-	Active  string // "default" | "file" | "env" | "flag"
+	Flags     SourceFlags // bitmask: SourceFile | SourceEnv | SourceFlag
+	Active    string      // "default" | "file" | "env" | "flag"
+	FileValue string      // value as read from config file; empty when SourceFile is not set
+	EnvValue  string      // value of the env var at load time; empty when SourceEnv is not set
+	FlagValue string      // value passed via CLI flag; empty when SourceFlag is not set
 }
 
 // Config holds all resolved configuration for the application.
@@ -134,8 +183,9 @@ func ApplyFlag(cfg *Config, key, value string) {
 	}
 
 	s := cfg.Sources[key]
-	s.FlagSet = true
+	s.Flags = s.Flags.With(SourceFlag)
 	s.Active = "flag"
+	s.FlagValue = value
 	cfg.Sources[key] = s
 }
 
@@ -180,6 +230,7 @@ func Load(configFlagValue string) *Config {
 	// A separate viper instance (no env bindings, no defaults) is used so
 	// AllKeys() only returns keys literally written in the file.
 	fileKeys := make(map[string]bool)
+	fileValues := make(map[string]string)
 
 	if fileFound {
 		fv := viper.New()
@@ -188,6 +239,7 @@ func Load(configFlagValue string) *Config {
 		if fv.ReadInConfig() == nil {
 			for _, k := range fv.AllKeys() {
 				fileKeys[k] = true
+				fileValues[k] = fv.GetString(k)
 			}
 		}
 	}
@@ -209,15 +261,27 @@ func Load(configFlagValue string) *Config {
 	for _, m := range AllFields() {
 		rv.Field(m.FieldIndex).SetString(v.GetString(m.Key))
 
+		envVal := os.Getenv(m.EnvVar)
+
+		var flags SourceFlags
+		if fileKeys[m.Key] {
+			flags = flags.With(SourceFile)
+		}
+
+		if envVal != "" {
+			flags = flags.With(SourceEnv)
+		}
+
 		state := SourceState{
-			FileSet: fileKeys[m.Key],
-			EnvSet:  os.Getenv(m.EnvVar) != "",
+			Flags:     flags,
+			FileValue: fileValues[m.Key],
+			EnvValue:  envVal,
 		}
 
 		switch {
-		case state.EnvSet:
+		case flags.Has(SourceEnv):
 			state.Active = "env"
-		case state.FileSet:
+		case flags.Has(SourceFile):
 			state.Active = "file"
 		default:
 			state.Active = "default"
