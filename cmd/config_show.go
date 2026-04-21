@@ -36,10 +36,16 @@ is what it is.`,
 		}
 
 		// Compact grid (default).
-		const (
-			wOption = 12
-			wSource = 10
-		)
+		const wSource = 10
+
+		// Compute column width from the longest key name so new fields never
+		// cause misalignment.
+		wOption := len("OPTION") // minimum: at least as wide as the header
+		for _, m := range config.AllFields() {
+			if len(m.Key) > wOption {
+				wOption = len(m.Key)
+			}
+		}
 
 		header := padRight("OPTION", wOption) + "  " +
 			padRight("📦 default", wSource) + "  " +
