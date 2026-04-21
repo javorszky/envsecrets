@@ -24,10 +24,14 @@ After any code change, update the relevant section(s) below to keep signatures a
 
 ## `.github/workflows/` — CI
 
+All action refs are pinned to full commit SHAs (with tag comment) to prevent supply-chain attacks (`unpinned-uses`). All `actions/checkout` steps set `persist-credentials: false` (`artipacked`).
+
 | File | Triggers | Jobs |
 |------|----------|------|
-| `ci.yml` | `pull_request`, `merge_group` | **lint** (golangci-lint incl. staticcheck, govet, gofmt), **test** (`go test -race`), **govulncheck** — all run in parallel |
+| `ci.yml` | `pull_request`, `merge_group`, `workflow_call` | **lint** (golangci-lint incl. staticcheck, govet, gofmt), **test** (`go test -race`), **govulncheck**, **trivy** (SARIF to Security tab) — all run in parallel |
 | `codeql.yml` | `pull_request` (branches: main), `merge_group` | **analyze** — CodeQL semantic analysis for Go using the `security-and-quality` query suite; uploads SARIF results to GitHub Security tab |
+| `release.yml` | `push` (semver tags), `workflow_dispatch` | **ci** (calls `ci.yml`), **goreleaser-check**, **release** (GoReleaser + SBOM). Permissions are job-scoped: only the `release` job has `contents: write` and `id-token: write`. |
+| `zizmor.yml` | `push` (main), `pull_request`, `merge_group` | **zizmor** — static analysis of all workflow files via `uvx zizmor --format=sarif`; uploads SARIF to GitHub Security tab under category `zizmor` |
 
 ---
 
