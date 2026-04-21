@@ -29,11 +29,12 @@ var ErrUnavailable = errors.New("keepassxc: keepassxc-cli unavailable")
 // Client holds configuration for KeePassXC operations.
 type Client struct {
 	vault  string // envsecrets vault name (used for password storage key and db path)
-	dbPath string // absolute path to the .kdbx database file
+	dbPath string // path to the .kdbx database file
 }
 
 // New returns a Client for the given vault. If dbPath is empty it defaults to
-// ~/.local/share/envsecrets/<vault>.kdbx (same directory as keychain files).
+// ~/.local/share/envsecrets/<vault>.kdbx (same directory as keychain files);
+// otherwise the provided dbPath is used as-is.
 func New(vault, dbPath string) *Client {
 	if dbPath == "" {
 		home, _ := os.UserHomeDir()
@@ -53,7 +54,13 @@ func (c *Client) Available(_ context.Context) bool {
 // the stored password is readable if it does. Returns (true, nil) when newly
 // created, (false, nil) when it already existed, or (false, err) on failure.
 func (c *Client) EnsureVault(ctx context.Context) (bool, error) {
-	if _, err := os.Stat(c.dbPath); errors.Is(err, os.ErrNotExist) {
+	_, err := os.Stat(c.dbPath)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return false, fmt.Errorf("keepassxc: checking database path %q: %w", c.dbPath, err)
+		}
+
+		// File does not exist — create it.
 		if err := c.createDB(ctx); err != nil {
 			return false, err
 		}

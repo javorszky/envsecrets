@@ -59,11 +59,17 @@ func New(keychainVault, opVault, durableBackend, kpxcDB string) *Manager {
 	var op SecretStore
 	var opName string
 
-	switch durableBackend {
+	backend := strings.ToLower(strings.TrimSpace(durableBackend))
+
+	switch backend {
 	case "keepassxc":
 		op = keepassxc.New(keychainVault, kpxcDB)
 		opName = "KeePassXC"
+	case "", "1password":
+		op = onepassword.New(opVault)
+		opName = "1Password"
 	default:
+		fmt.Fprintf(os.Stderr, "warning: unrecognized durable backend %q; falling back to \"1password\"\n", durableBackend)
 		op = onepassword.New(opVault)
 		opName = "1Password"
 	}
