@@ -1,14 +1,14 @@
 // Package secrets is the orchestration layer that coordinates reads and writes
-// across the macOS Keychain and 1Password.
+// across the macOS Keychain and a configurable durable store.
 //
-// Write path:  both backends are written; 1Password failure is non-fatal and
+// Write path:  both backends are written; durable store failure is non-fatal
 //
-//	only emits a warning so that offline / no-op workflows still work.
+//	and only emits a warning so that offline workflows still work.
 //
 // Read path:   Keychain is tried first (fast, local, always available).
 //
-//	Falls back to 1Password if the Keychain entry is absent, and
-//	writes the result back into Keychain so subsequent reads are fast.
+//	Falls back to the durable store if the Keychain entry is absent,
+//	and writes the result back into Keychain so subsequent reads are fast.
 //
 // Delete path: both backends are attempted; neither failing blocks the other.
 package secrets
@@ -26,27 +26,27 @@ import (
 	"github.com/javorszky/envsecrets/internal/onepassword"
 )
 
-// SecretStore is the interface that both backends (keychain and 1Password)
-// implement. It provides a uniform API for secret storage and retrieval.
+// SecretStore is the interface that all backends implement.
+// It provides a uniform API for secret storage and retrieval.
 type SecretStore interface {
 	Available(ctx context.Context) bool
 	Get(ctx context.Context, key string) (string, error)
 	Set(ctx context.Context, key, value string) error
 	Delete(ctx context.Context, key string) error
 	List(ctx context.Context) ([]string, error)
-	// EnsureVault creates the backend vault (keychain file or 1Password vault)
-	// if it does not already exist, or unlocks/verifies it if it does.
-	// Returns (true, nil) when the vault was newly created,
+	// EnsureVault creates the backend vault (keychain file or durable store
+	// database) if it does not already exist, or unlocks/verifies it if it
+	// does. Returns (true, nil) when the vault was newly created,
 	// (false, nil) when it already existed, or (false, err) on failure.
 	EnsureVault(ctx context.Context) (bool, error)
 }
 
-// Manager orchestrates secrets across Keychain and a durable store.
+// Manager orchestrates secrets across the Keychain cache and a durable store.
 type Manager struct {
-	kc     SecretStore
-	op     SecretStore
-	opName string    // display name for the durable backend, e.g. "1Password" or "KeePassXC"
-	warn   io.Writer // destination for non-fatal warnings (defaults to stderr)
+	kc          SecretStore
+	durable     SecretStore
+	durableName string    // display name for the durable backend, e.g. "1Password" or "KeePassXC"
+	warn        io.Writer // destination for non-fatal warnings (defaults to stderr)
 }
 
 // New returns a Manager backed by a dedicated local keychain file and a durable
@@ -56,41 +56,41 @@ type Manager struct {
 //   - durableBackend: "1password" (default) or "keepassxc"
 //   - kpxcDB:         KeePassXC database path; empty uses the default path based on keychainVault
 func New(keychainVault, opVault, durableBackend, kpxcDB string) *Manager {
-	var op SecretStore
-	var opName string
+	var durable SecretStore
+	var durableName string
 
 	backend := strings.ToLower(strings.TrimSpace(durableBackend))
 
 	switch backend {
 	case "keepassxc":
-		op = keepassxc.New(keychainVault, kpxcDB)
-		opName = "KeePassXC"
+		durable = keepassxc.New(keychainVault, kpxcDB)
+		durableName = "KeePassXC"
 	case "", "1password":
-		op = onepassword.New(opVault)
-		opName = "1Password"
+		durable = onepassword.New(opVault)
+		durableName = "1Password"
 	default:
 		fmt.Fprintf(os.Stderr, "warning: unrecognized durable backend %q; falling back to \"1password\"\n", durableBackend)
-		op = onepassword.New(opVault)
-		opName = "1Password"
+		durable = onepassword.New(opVault)
+		durableName = "1Password"
 	}
 
 	return &Manager{
-		kc:     keychain.New(keychainVault),
-		op:     op,
-		opName: opName,
-		warn:   os.Stderr,
+		kc:          keychain.New(keychainVault),
+		durable:     durable,
+		durableName: durableName,
+		warn:        os.Stderr,
 	}
 }
 
 // NewWithBackends returns a Manager using the provided backend implementations.
 // Intended for tests: pass mock or stub implementations of SecretStore
 // to exercise the Manager's logic in isolation.
-func NewWithBackends(kc, op SecretStore) *Manager {
+func NewWithBackends(kc, durable SecretStore) *Manager {
 	return &Manager{
-		kc:     kc,
-		op:     op,
-		opName: "1Password",
-		warn:   os.Stderr,
+		kc:          kc,
+		durable:     durable,
+		durableName: "1Password",
+		warn:        os.Stderr,
 	}
 }
 
@@ -101,16 +101,16 @@ func (m *Manager) WithWarningWriter(w io.Writer) *Manager {
 	return m
 }
 
-// isOpNotFound reports whether err represents a "not found" response from any
-// supported durable backend.
-func isOpNotFound(err error) bool {
+// isDurableNotFound reports whether err represents a "not found" response from
+// any supported durable backend.
+func isDurableNotFound(err error) bool {
 	return errors.Is(err, onepassword.ErrNotFound) || errors.Is(err, keepassxc.ErrNotFound)
 }
 
 // Get retrieves a secret by key.
 //
 //  1. Keychain (fast path)
-//  2. 1Password (fallback; result is written back into Keychain)
+//  2. Durable store (fallback; result is written back into Keychain)
 func (m *Manager) Get(ctx context.Context, key string) (string, error) {
 	val, err := m.kc.Get(ctx, key)
 	if err == nil {
@@ -122,17 +122,17 @@ func (m *Manager) Get(ctx context.Context, key string) (string, error) {
 	}
 
 	// Keychain miss — try the durable store.
-	if !m.op.Available(ctx) {
-		return "", fmt.Errorf("key %q not in keychain and %s is unavailable", key, m.opName)
+	if !m.durable.Available(ctx) {
+		return "", fmt.Errorf("key %q not in keychain and %s is unavailable", key, m.durableName)
 	}
 
-	val, err = m.op.Get(ctx, key)
+	val, err = m.durable.Get(ctx, key)
 	if err != nil {
-		if isOpNotFound(err) {
-			return "", fmt.Errorf("key %q not found in keychain or %s", key, m.opName)
+		if isDurableNotFound(err) {
+			return "", fmt.Errorf("key %q not found in keychain or %s", key, m.durableName)
 		}
 
-		return "", fmt.Errorf("%s read: %w", strings.ToLower(m.opName), err)
+		return "", fmt.Errorf("%s read: %w", strings.ToLower(m.durableName), err)
 	}
 
 	// Warm the Keychain so next time we don't need the durable store.
@@ -144,7 +144,7 @@ func (m *Manager) Get(ctx context.Context, key string) (string, error) {
 }
 
 // Set writes the secret to both backends.
-// 1Password failure is treated as a warning — the secret is still stored
+// Durable store failure is treated as a warning — the secret is still stored
 // locally in Keychain so the workflow continues offline.
 // If either vault does not exist, it is created automatically.
 func (m *Manager) Set(ctx context.Context, key, value string) error {
@@ -160,20 +160,20 @@ func (m *Manager) Set(ctx context.Context, key, value string) error {
 		return fmt.Errorf("keychain write: %w", err)
 	}
 
-	if !m.op.Available(ctx) {
-		fmt.Fprintf(m.warn, "warning: %s unavailable; %q stored in keychain only\n", m.opName, key)
+	if !m.durable.Available(ctx) {
+		fmt.Fprintf(m.warn, "warning: %s unavailable; %q stored in keychain only\n", m.durableName, key)
 		return nil
 	}
 
 	// Ensure the durable vault exists, creating it if necessary.
-	if created, err := m.op.EnsureVault(ctx); err != nil {
-		fmt.Fprintf(m.warn, "warning: could not ensure %s vault: %v\n", m.opName, err)
+	if created, err := m.durable.EnsureVault(ctx); err != nil {
+		fmt.Fprintf(m.warn, "warning: could not ensure %s vault: %v\n", m.durableName, err)
 	} else if created {
-		fmt.Fprintf(m.warn, "info: %s vault created\n", m.opName)
+		fmt.Fprintf(m.warn, "info: %s vault created\n", m.durableName)
 	}
 
-	if err := m.op.Set(ctx, key, value); err != nil {
-		fmt.Fprintf(m.warn, "warning: %s write failed for %q: %v\n", m.opName, key, err)
+	if err := m.durable.Set(ctx, key, value); err != nil {
+		fmt.Fprintf(m.warn, "warning: %s write failed for %q: %v\n", m.durableName, key, err)
 	}
 
 	return nil
@@ -188,31 +188,31 @@ func (m *Manager) Delete(ctx context.Context, key string) error {
 		errs = append(errs, fmt.Errorf("keychain delete: %w", err))
 	}
 
-	if m.op.Available(ctx) {
-		if err := m.op.Delete(ctx, key); err != nil && !isOpNotFound(err) {
-			errs = append(errs, fmt.Errorf("%s delete: %w", strings.ToLower(m.opName), err))
+	if m.durable.Available(ctx) {
+		if err := m.durable.Delete(ctx, key); err != nil && !isDurableNotFound(err) {
+			errs = append(errs, fmt.Errorf("%s delete: %w", strings.ToLower(m.durableName), err))
 		}
 	} else {
-		fmt.Fprintf(m.warn, "warning: %s unavailable; %q removed from keychain only\n", m.opName, key)
+		fmt.Fprintf(m.warn, "warning: %s unavailable; %q removed from keychain only\n", m.durableName, key)
 	}
 
 	return errors.Join(errs...)
 }
 
-// Sync pulls every item from the 1Password vault and writes it into Keychain.
+// Sync pulls every item from the durable store and writes it into Keychain.
 // This is the bootstrap command you run on a new machine.
 func (m *Manager) Sync(ctx context.Context) (synced int, err error) {
-	if !m.op.Available(ctx) {
-		return 0, fmt.Errorf("%s is unavailable; cannot sync", m.opName)
+	if !m.durable.Available(ctx) {
+		return 0, fmt.Errorf("%s is unavailable; cannot sync", m.durableName)
 	}
 
-	keys, err := m.op.List(ctx)
+	keys, err := m.durable.List(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("listing %s vault: %w", strings.ToLower(m.opName), err)
+		return 0, fmt.Errorf("listing %s vault: %w", strings.ToLower(m.durableName), err)
 	}
 
 	for _, key := range keys {
-		val, getErr := m.op.Get(ctx, key)
+		val, getErr := m.durable.Get(ctx, key)
 		if getErr != nil {
 			fmt.Fprintf(m.warn, "warning: skipping %q: %v\n", key, getErr)
 			continue
