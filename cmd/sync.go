@@ -25,9 +25,9 @@ Examples:
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
-		mgr := secrets.New(cfg.Vault, cfg.OpVault)
+		mgr := secrets.New(cfg.Vault, cfg.OpVault, cfg.DurableBackend, cfg.KpxcDB)
 
-		fmt.Fprintf(os.Stdout, "syncing from 1Password vault %q...\n", cfg.OpVault)
+		fmt.Fprintf(os.Stdout, "syncing secrets into Keychain...\n")
 
 		n, err := mgr.Sync(ctx)
 		if err != nil {

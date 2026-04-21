@@ -28,7 +28,7 @@ Examples:
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		key := args[0]
-		mgr := secrets.New(cfg.Vault, cfg.OpVault)
+		mgr := secrets.New(cfg.Vault, cfg.OpVault, cfg.DurableBackend, cfg.KpxcDB)
 
 		val, err := mgr.Get(ctx, key)
 		if err != nil {

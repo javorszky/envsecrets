@@ -345,13 +345,15 @@ func TestAllFields(t *testing.T) {
 
 	fields := config.AllFields()
 
-	require.Len(t, fields, 4)
+	require.Len(t, fields, 6)
 
-	// All four TOML keys must be present in order.
+	// All six TOML keys must be present in order.
 	assert.Equal(t, "vault", fields[0].Key)
 	assert.Equal(t, "op_vault", fields[1].Key)
-	assert.Equal(t, "template", fields[2].Key)
-	assert.Equal(t, "output", fields[3].Key)
+	assert.Equal(t, "durable_backend", fields[2].Key)
+	assert.Equal(t, "kpxc_db", fields[3].Key)
+	assert.Equal(t, "template", fields[4].Key)
+	assert.Equal(t, "output", fields[5].Key)
 
 	// vault — global scope
 	vault := fields[0]
@@ -369,8 +371,24 @@ func TestAllFields(t *testing.T) {
 	assert.Equal(t, "global", opVault.Scope)
 	assert.NotEmpty(t, opVault.Usage)
 
+	// durable_backend — global scope
+	durableBackend := fields[2]
+	assert.Equal(t, "ENVSECRETS_DURABLE_BACKEND", durableBackend.EnvVar)
+	assert.Equal(t, "durable-backend", durableBackend.Flag)
+	assert.Equal(t, "1password", durableBackend.Default)
+	assert.Equal(t, "global", durableBackend.Scope)
+	assert.NotEmpty(t, durableBackend.Usage)
+
+	// kpxc_db — global scope
+	kpxcDB := fields[3]
+	assert.Equal(t, "ENVSECRETS_KPXC_DB", kpxcDB.EnvVar)
+	assert.Equal(t, "kpxc-db", kpxcDB.Flag)
+	assert.Equal(t, "", kpxcDB.Default)
+	assert.Equal(t, "global", kpxcDB.Scope)
+	assert.NotEmpty(t, kpxcDB.Usage)
+
 	// template — gen-env scope
-	template := fields[2]
+	template := fields[4]
 	assert.Equal(t, "ENVSECRETS_TEMPLATE", template.EnvVar)
 	assert.Equal(t, "template", template.Flag)
 	assert.Equal(t, ".env.tpl", template.Default)
@@ -378,7 +396,7 @@ func TestAllFields(t *testing.T) {
 	assert.NotEmpty(t, template.Usage)
 
 	// output — gen-env scope
-	output := fields[3]
+	output := fields[5]
 	assert.Equal(t, "ENVSECRETS_OUTPUT", output.EnvVar)
 	assert.Equal(t, "output", output.Flag)
 	assert.Equal(t, ".env", output.Default)

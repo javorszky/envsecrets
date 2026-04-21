@@ -19,7 +19,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
+	"github.com/javorszky/envsecrets/internal/keepassxc"
 	"github.com/javorszky/envsecrets/internal/keychain"
 	"github.com/javorszky/envsecrets/internal/onepassword"
 )
@@ -39,22 +41,38 @@ type SecretStore interface {
 	EnsureVault(ctx context.Context) (bool, error)
 }
 
-// Manager orchestrates secrets across Keychain and 1Password.
+// Manager orchestrates secrets across Keychain and a durable store.
 type Manager struct {
-	kc   SecretStore
-	op   SecretStore
-	warn io.Writer // destination for non-fatal warnings (defaults to stderr)
+	kc     SecretStore
+	op     SecretStore
+	opName string    // display name for the durable backend, e.g. "1Password" or "KeePassXC"
+	warn   io.Writer // destination for non-fatal warnings (defaults to stderr)
 }
 
-// New returns a Manager backed by a dedicated local keychain file and the
-// given 1Password vault.
-//   - keychainVault: name for the keychain file (~/.local/share/envsecrets/<name>.keychain)
-//   - opVault:       1Password vault name where secrets are stored
-func New(keychainVault, opVault string) *Manager {
+// New returns a Manager backed by a dedicated local keychain file and a durable
+// backend selected by durableBackend ("1password" or "keepassxc").
+//   - keychainVault:  name for the keychain file (~/.local/share/envsecrets/<name>.keychain)
+//   - opVault:        1Password vault name (used when durableBackend == "1password")
+//   - durableBackend: "1password" (default) or "keepassxc"
+//   - kpxcDB:         KeePassXC database path; empty uses the default path based on keychainVault
+func New(keychainVault, opVault, durableBackend, kpxcDB string) *Manager {
+	var op SecretStore
+	var opName string
+
+	switch durableBackend {
+	case "keepassxc":
+		op = keepassxc.New(keychainVault, kpxcDB)
+		opName = "KeePassXC"
+	default:
+		op = onepassword.New(opVault)
+		opName = "1Password"
+	}
+
 	return &Manager{
-		kc:   keychain.New(keychainVault),
-		op:   onepassword.New(opVault),
-		warn: os.Stderr,
+		kc:     keychain.New(keychainVault),
+		op:     op,
+		opName: opName,
+		warn:   os.Stderr,
 	}
 }
 
@@ -63,9 +81,10 @@ func New(keychainVault, opVault string) *Manager {
 // to exercise the Manager's logic in isolation.
 func NewWithBackends(kc, op SecretStore) *Manager {
 	return &Manager{
-		kc:   kc,
-		op:   op,
-		warn: os.Stderr,
+		kc:     kc,
+		op:     op,
+		opName: "1Password",
+		warn:   os.Stderr,
 	}
 }
 
@@ -74,6 +93,12 @@ func NewWithBackends(kc, op SecretStore) *Manager {
 func (m *Manager) WithWarningWriter(w io.Writer) *Manager {
 	m.warn = w
 	return m
+}
+
+// isOpNotFound reports whether err represents a "not found" response from any
+// supported durable backend.
+func isOpNotFound(err error) bool {
+	return errors.Is(err, onepassword.ErrNotFound) || errors.Is(err, keepassxc.ErrNotFound)
 }
 
 // Get retrieves a secret by key.
@@ -90,21 +115,21 @@ func (m *Manager) Get(ctx context.Context, key string) (string, error) {
 		return "", fmt.Errorf("keychain read: %w", err)
 	}
 
-	// Keychain miss — try 1Password.
+	// Keychain miss — try the durable store.
 	if !m.op.Available(ctx) {
-		return "", fmt.Errorf("key %q not in keychain and 1Password is unavailable", key)
+		return "", fmt.Errorf("key %q not in keychain and %s is unavailable", key, m.opName)
 	}
 
 	val, err = m.op.Get(ctx, key)
 	if err != nil {
-		if errors.Is(err, onepassword.ErrNotFound) {
-			return "", fmt.Errorf("key %q not found in keychain or 1Password", key)
+		if isOpNotFound(err) {
+			return "", fmt.Errorf("key %q not found in keychain or %s", key, m.opName)
 		}
 
-		return "", fmt.Errorf("1password read: %w", err)
+		return "", fmt.Errorf("%s read: %w", strings.ToLower(m.opName), err)
 	}
 
-	// Warm the Keychain so next time we don't need 1Password.
+	// Warm the Keychain so next time we don't need the durable store.
 	if kcErr := m.kc.Set(ctx, key, val); kcErr != nil {
 		fmt.Fprintf(m.warn, "warning: could not cache %q in keychain: %v\n", key, kcErr)
 	}
@@ -130,19 +155,19 @@ func (m *Manager) Set(ctx context.Context, key, value string) error {
 	}
 
 	if !m.op.Available(ctx) {
-		fmt.Fprintf(m.warn, "warning: 1Password unavailable; %q stored in keychain only\n", key)
+		fmt.Fprintf(m.warn, "warning: %s unavailable; %q stored in keychain only\n", m.opName, key)
 		return nil
 	}
 
-	// Ensure the 1Password vault exists, creating it if necessary.
+	// Ensure the durable vault exists, creating it if necessary.
 	if created, err := m.op.EnsureVault(ctx); err != nil {
-		fmt.Fprintf(m.warn, "warning: could not ensure 1Password vault: %v\n", err)
+		fmt.Fprintf(m.warn, "warning: could not ensure %s vault: %v\n", m.opName, err)
 	} else if created {
-		fmt.Fprintf(m.warn, "info: 1Password vault created\n")
+		fmt.Fprintf(m.warn, "info: %s vault created\n", m.opName)
 	}
 
 	if err := m.op.Set(ctx, key, value); err != nil {
-		fmt.Fprintf(m.warn, "warning: 1Password write failed for %q: %v\n", key, err)
+		fmt.Fprintf(m.warn, "warning: %s write failed for %q: %v\n", m.opName, key, err)
 	}
 
 	return nil
@@ -158,11 +183,11 @@ func (m *Manager) Delete(ctx context.Context, key string) error {
 	}
 
 	if m.op.Available(ctx) {
-		if err := m.op.Delete(ctx, key); err != nil && !errors.Is(err, onepassword.ErrNotFound) {
-			errs = append(errs, fmt.Errorf("1password delete: %w", err))
+		if err := m.op.Delete(ctx, key); err != nil && !isOpNotFound(err) {
+			errs = append(errs, fmt.Errorf("%s delete: %w", strings.ToLower(m.opName), err))
 		}
 	} else {
-		fmt.Fprintf(m.warn, "warning: 1Password unavailable; %q removed from keychain only\n", key)
+		fmt.Fprintf(m.warn, "warning: %s unavailable; %q removed from keychain only\n", m.opName, key)
 	}
 
 	return errors.Join(errs...)
@@ -172,12 +197,12 @@ func (m *Manager) Delete(ctx context.Context, key string) error {
 // This is the bootstrap command you run on a new machine.
 func (m *Manager) Sync(ctx context.Context) (synced int, err error) {
 	if !m.op.Available(ctx) {
-		return 0, fmt.Errorf("1Password is unavailable; cannot sync")
+		return 0, fmt.Errorf("%s is unavailable; cannot sync", m.opName)
 	}
 
 	keys, err := m.op.List(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("listing 1password vault: %w", err)
+		return 0, fmt.Errorf("listing %s vault: %w", strings.ToLower(m.opName), err)
 	}
 
 	for _, key := range keys {
