@@ -32,13 +32,19 @@ type Client struct {
 	dbPath string // path to the .kdbx database file
 }
 
+// DefaultDBPath returns the default KeePassXC database path for the given vault:
+// ~/.local/share/envsecrets/<vault>.kdbx
+func DefaultDBPath(vault string) string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".local", "share", "envsecrets", vault+".kdbx")
+}
+
 // New returns a Client for the given vault. If dbPath is empty it defaults to
 // ~/.local/share/envsecrets/<vault>.kdbx (same directory as keychain files);
 // otherwise the provided dbPath is used as-is.
 func New(vault, dbPath string) *Client {
 	if dbPath == "" {
-		home, _ := os.UserHomeDir()
-		dbPath = filepath.Join(home, ".local", "share", "envsecrets", vault+".kdbx")
+		dbPath = DefaultDBPath(vault)
 	}
 
 	return &Client{vault: vault, dbPath: dbPath}

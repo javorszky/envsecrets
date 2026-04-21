@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/javorszky/envsecrets/internal/config"
+	"github.com/javorszky/envsecrets/internal/keepassxc"
 	"github.com/spf13/cobra"
 )
 
@@ -67,5 +68,13 @@ func initConfig() {
 				config.ApplyFlag(cfg, m.Key, f.Value.String())
 			}
 		}
+	}
+
+	// Resolve computed defaults that depend on other config values.
+	// kpxc_db defaults to ~/.local/share/envsecrets/<vault>.kdbx; fill it in
+	// now so that config show displays the actual effective path rather than
+	// an empty string.
+	if cfg.KpxcDB == "" {
+		cfg.KpxcDB = keepassxc.DefaultDBPath(cfg.Vault)
 	}
 }
