@@ -269,6 +269,12 @@ func (c *Client) createDB(ctx context.Context) error {
 	}
 
 	if err := c.storePassword(ctx, pw); err != nil {
+		// Password not persisted — the database is unrecoverable. Delete it so
+		// EnsureVault can attempt a clean creation next time.
+		if removeErr := os.Remove(c.dbPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			return fmt.Errorf("storing database password: %w (also failed to remove newly created database %q: %v)", err, c.dbPath, removeErr)
+		}
+
 		return fmt.Errorf("storing database password: %w", err)
 	}
 

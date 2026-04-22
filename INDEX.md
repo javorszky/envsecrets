@@ -375,7 +375,7 @@ The durable backend slot (right side) is selected at construction time by `cfg.D
 - `"keepassxc"` → `*keepassxc.Client`
 
 **Read path:** Keychain → miss → durable store → cache to Keychain → return  
-**Write path:** `kc.EnsureVault` → Keychain (must succeed) → `op.EnsureVault` → durable store (best-effort)  
+**Write path:** `kc.EnsureVault` → Keychain (must succeed) → `durable.EnsureVault` → durable store (best-effort)  
 **Delete path:** Keychain + durable store attempted independently; errors joined  
 **Sync path:** durable store `List()` → fetch each → write to Keychain  
 **Template path:** scan `.tpl` line-by-line → resolve `secret:` prefixed values → write output  
