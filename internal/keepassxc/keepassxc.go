@@ -27,6 +27,11 @@ var ErrNotFound = errors.New("keepassxc: entry not found")
 // ErrUnavailable is returned when keepassxc-cli is not installed.
 var ErrUnavailable = errors.New("keepassxc: keepassxc-cli unavailable")
 
+// ErrInvalidKey is returned when a key contains characters that KeePassXC
+// interprets as path separators or group markers, which would make the entry
+// invisible to List and inconsistent across Get/Set/Delete/List.
+var ErrInvalidKey = errors.New("keepassxc: key must not contain '/' or start with whitespace")
+
 // Client holds configuration for KeePassXC operations.
 type Client struct {
 	// stem is the database stem name (e.g. "envsecrets"). It is used as the
@@ -114,7 +119,12 @@ func (c *Client) EnsureVault(ctx context.Context) (bool, error) {
 }
 
 // Get retrieves the Password field of the entry whose title matches key.
+// Returns ErrInvalidKey if the key contains "/" or starts with whitespace.
 func (c *Client) Get(ctx context.Context, key string) (string, error) {
+	if err := ValidateKey(key); err != nil {
+		return "", err
+	}
+
 	pw, err := c.readPassword(ctx)
 	if err != nil {
 		return "", err
@@ -149,7 +159,13 @@ func (c *Client) Get(ctx context.Context, key string) (string, error) {
 // supported. Newline and carriage-return characters are percent-encoded before
 // being written to the database and decoded transparently on Get, so the value
 // round-trips exactly.
+//
+// Returns ErrInvalidKey if the key contains "/" or starts with whitespace.
 func (c *Client) Set(ctx context.Context, key, value string) error {
+	if err := ValidateKey(key); err != nil {
+		return err
+	}
+
 	err := c.edit(ctx, key, value)
 	if err == nil {
 		return nil
@@ -163,7 +179,12 @@ func (c *Client) Set(ctx context.Context, key, value string) error {
 }
 
 // Delete removes the entry whose title matches key.
+// Returns ErrInvalidKey if the key contains "/" or starts with whitespace.
 func (c *Client) Delete(ctx context.Context, key string) error {
+	if err := ValidateKey(key); err != nil {
+		return err
+	}
+
 	pw, err := c.readPassword(ctx)
 	if err != nil {
 		return err
@@ -214,6 +235,32 @@ func (c *Client) List(ctx context.Context) ([]string, error) {
 	}
 
 	return ParseListOutput(string(out)), nil
+}
+
+// ValidateKey reports whether key is safe to use as a KeePassXC entry title.
+// KeePassXC interprets "/" as a path separator (creating nested groups) and
+// indented output lines are filtered by ParseListOutput, so keys with those
+// characters cause Get/Set/Delete to succeed but List/Sync to silently miss
+// the entry. ValidateKey rejects:
+//   - empty keys
+//   - keys containing "/"
+//   - keys with leading whitespace (space or tab)
+//
+// Returns ErrInvalidKey when the key fails validation, nil otherwise.
+func ValidateKey(key string) error {
+	if key == "" {
+		return ErrInvalidKey
+	}
+
+	if strings.Contains(key, "/") {
+		return ErrInvalidKey
+	}
+
+	if strings.HasPrefix(key, " ") || strings.HasPrefix(key, "\t") {
+		return ErrInvalidKey
+	}
+
+	return nil
 }
 
 // ParseListOutput extracts root-level entry names from `keepassxc-cli ls` output.

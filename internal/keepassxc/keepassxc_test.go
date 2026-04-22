@@ -1,11 +1,76 @@
 package keepassxc_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/javorszky/envsecrets/internal/keepassxc"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestValidateKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		key     string
+		wantErr bool
+	}{
+		{
+			name:    "plain env var name",
+			key:     "DB_PASSWORD",
+			wantErr: false,
+		},
+		{
+			name:    "name with hyphens",
+			key:     "my-secret-key",
+			wantErr: false,
+		},
+		{
+			name:    "empty key rejected",
+			key:     "",
+			wantErr: true,
+		},
+		{
+			name:    "slash in middle rejected",
+			key:     "MYAPP/DB_PASSWORD",
+			wantErr: true,
+		},
+		{
+			name:    "leading slash rejected",
+			key:     "/MYKEY",
+			wantErr: true,
+		},
+		{
+			name:    "trailing slash rejected",
+			key:     "MYKEY/",
+			wantErr: true,
+		},
+		{
+			name:    "leading space rejected",
+			key:     " MYKEY",
+			wantErr: true,
+		},
+		{
+			name:    "leading tab rejected",
+			key:     "\tMYKEY",
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := keepassxc.ValidateKey(tc.key)
+			if tc.wantErr {
+				assert.True(t, errors.Is(err, keepassxc.ErrInvalidKey), "expected ErrInvalidKey, got %v", err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
 
 func TestParseListOutput(t *testing.T) {
 	t.Parallel()

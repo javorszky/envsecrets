@@ -267,6 +267,7 @@ Wraps the `keepassxc-cli` tool to store and retrieve secrets from a KeePass data
 |------|-------------|
 | `ErrNotFound` | Returned when a KeePassXC entry does not exist (`keepassxc-cli` stderr contains "could not find entry"). |
 | `ErrUnavailable` | Returned when `keepassxc-cli` is not on `$PATH`. |
+| `ErrInvalidKey` | Returned when a key contains `"/"` or starts with whitespace — characters that cause KeePassXC to create nested groups, making entries invisible to `List`. |
 
 ### `Client` struct
 
@@ -283,10 +284,11 @@ Wraps the `keepassxc-cli` tool to store and retrieve secrets from a KeePass data
 | `New(stem string) *Client` | Constructs a `Client`. `stem` is a bare name (e.g. `"envsecrets"`) that drives the database path, keychain service name, and access-details filename. |
 | `(c *Client) Available(_ context.Context) bool` | Returns `true` if `keepassxc-cli` is on `$PATH`. |
 | `(c *Client) EnsureVault(ctx context.Context) (bool, error)` | Creates the database if absent (`true, nil`); runs a `keepassxc-cli ls --quiet` probe to verify the stored password actually unlocks the existing DB (`false, nil`). Returns `ErrUnavailable` if `keepassxc-cli` is missing. |
-| `(c *Client) Get(ctx context.Context, key string) (string, error)` | Reads the Password field via `keepassxc-cli show --attributes Password`. Returns `ErrNotFound` on miss. |
-| `(c *Client) Set(ctx context.Context, key, value string) error` | edit-first (`keepassxc-cli edit --password-prompt`), then add on `ErrNotFound` (`keepassxc-cli add --password-prompt`). |
-| `(c *Client) Delete(ctx context.Context, key string) error` | Removes the entry via `keepassxc-cli rm`. Returns `ErrNotFound` if absent. |
+| `(c *Client) Get(ctx context.Context, key string) (string, error)` | Reads the Password field via `keepassxc-cli show --attributes Password`. Returns `ErrNotFound` on miss, `ErrInvalidKey` if key contains `"/"` or leading whitespace. |
+| `(c *Client) Set(ctx context.Context, key, value string) error` | edit-first (`keepassxc-cli edit --password-prompt`), then add on `ErrNotFound`. Returns `ErrInvalidKey` if key contains `"/"` or leading whitespace. |
+| `(c *Client) Delete(ctx context.Context, key string) error` | Removes the entry via `keepassxc-cli rm`. Returns `ErrNotFound` if absent, `ErrInvalidKey` if key contains `"/"` or leading whitespace. |
 | `(c *Client) List(ctx context.Context) ([]string, error)` | Returns root-level entry names via `keepassxc-cli ls` + `ParseListOutput`. |
+| `ValidateKey(key string) error` | Returns `ErrInvalidKey` if `key` is empty, contains `"/"`, or starts with whitespace (space or tab); returns `nil` otherwise. Called by `Get`/`Set`/`Delete`. Exported for testability and pre-validation by callers. |
 | `ParseListOutput(output string) []string` | Extracts root-level entry names from `keepassxc-cli ls` output. Skips group names (suffix `/`) and indented sub-entries. Exported for testability. |
 
 ### Key unexported methods
