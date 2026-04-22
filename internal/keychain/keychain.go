@@ -82,7 +82,7 @@ func (c *Client) Get(ctx context.Context, service string) (string, error) {
 		return "", fmt.Errorf("keychain get %q: %w", service, err)
 	}
 
-	return strings.TrimRight(string(out), "\n"), nil
+	return ParsePasswordOutput(out), nil
 }
 
 // Set stores or overwrites a secret. It deletes any existing entry first to
@@ -139,6 +139,14 @@ func (c *Client) List(ctx context.Context) ([]string, error) {
 	}
 
 	return ParseDumpServices(string(out)), nil
+}
+
+// ParsePasswordOutput extracts the secret value from the raw bytes returned by
+// `security find-generic-password -w`. It trims the single trailing newline
+// that the CLI appends to its output, while preserving any internal newlines
+// that are part of the value (e.g. multiline YAML blocks).
+func ParsePasswordOutput(out []byte) string {
+	return strings.TrimRight(string(out), "\n")
 }
 
 // ParseDumpServices extracts unique service names from the output of

@@ -61,7 +61,7 @@ func (c *Client) Get(ctx context.Context, key string) (string, error) {
 		return "", classifyError(key, err)
 	}
 
-	return strings.TrimRight(string(out), "\n"), nil
+	return ParsePasswordOutput(out), nil
 }
 
 // Set creates or updates an item. It attempts an edit first; if the item does
@@ -252,6 +252,14 @@ To access your secrets without the envsecrets CLI:
 	)
 
 	return nil
+}
+
+// ParsePasswordOutput extracts the secret value from the raw bytes returned by
+// `op read`. It trims the single trailing newline that the CLI appends to its
+// output, while preserving any internal newlines that are part of the value
+// (e.g. multiline YAML blocks).
+func ParsePasswordOutput(out []byte) string {
+	return strings.TrimRight(string(out), "\n")
 }
 
 // ParseVaultNames extracts vault names from the JSON array returned by

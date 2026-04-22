@@ -116,14 +116,19 @@ func (c *Client) Get(ctx context.Context, key string) (string, error) {
 			return "", classifyError(key, exitErr.Stderr)
 		}
 
-		return "", fmt.Errorf("keepassxc get %q: %w", key, err)
+		return "", unavailableOrWrap(fmt.Sprintf("get %q", key), err)
 	}
 
-	return strings.TrimRight(string(out), "\n"), nil
+	return decodeValue(strings.TrimRight(string(out), "\n")), nil
 }
 
 // Set stores or updates the entry. It attempts an edit first; if the entry does
 // not exist it creates a new entry.
+//
+// Arbitrary values — including multiline strings such as YAML blocks — are
+// supported. Newline and carriage-return characters are percent-encoded before
+// being written to the database and decoded transparently on Get, so the value
+// round-trips exactly.
 func (c *Client) Set(ctx context.Context, key, value string) error {
 	err := c.edit(ctx, key, value)
 	if err == nil {
@@ -154,6 +159,10 @@ func (c *Client) Delete(ctx context.Context, key string) error {
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return ErrUnavailable
+		}
+
 		return classifyError(key, out)
 	}
 
@@ -181,7 +190,7 @@ func (c *Client) List(ctx context.Context) ([]string, error) {
 			return nil, fmt.Errorf("keepassxc list: %w\n%s", err, exitErr.Stderr)
 		}
 
-		return nil, fmt.Errorf("keepassxc list: %w", err)
+		return nil, unavailableOrWrap("list", err)
 	}
 
 	return ParseListOutput(string(out)), nil
@@ -220,6 +229,9 @@ func (c *Client) add(ctx context.Context, key, value string) error {
 	}
 
 	// keepassxc-cli add --password-prompt reads: db-password, entry-password, entry-password (confirm)
+	// Newlines in the value are percent-encoded so they don't break the stdin
+	// prompt protocol. Get decodes them on the way back out.
+	encoded := encodeValue(value)
 	cmd := exec.CommandContext(ctx,
 		"keepassxc-cli", "add",
 		"--quiet",
@@ -227,9 +239,13 @@ func (c *Client) add(ctx context.Context, key, value string) error {
 		c.dbPath,
 		key,
 	)
-	cmd.Stdin = strings.NewReader(pw + "\n" + value + "\n" + value + "\n")
+	cmd.Stdin = strings.NewReader(pw + "\n" + encoded + "\n" + encoded + "\n")
 
 	if out, err := cmd.CombinedOutput(); err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return ErrUnavailable
+		}
+
 		return fmt.Errorf("keepassxc add %q: %w\n%s", key, err, out)
 	}
 
@@ -243,6 +259,9 @@ func (c *Client) edit(ctx context.Context, key, value string) error {
 	}
 
 	// keepassxc-cli edit --password-prompt reads: db-password, new-entry-password, new-entry-password (confirm)
+	// Newlines in the value are percent-encoded so they don't break the stdin
+	// prompt protocol. Get decodes them on the way back out.
+	encoded := encodeValue(value)
 	cmd := exec.CommandContext(ctx,
 		"keepassxc-cli", "edit",
 		"--quiet",
@@ -250,10 +269,14 @@ func (c *Client) edit(ctx context.Context, key, value string) error {
 		c.dbPath,
 		key,
 	)
-	cmd.Stdin = strings.NewReader(pw + "\n" + value + "\n" + value + "\n")
+	cmd.Stdin = strings.NewReader(pw + "\n" + encoded + "\n" + encoded + "\n")
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return ErrUnavailable
+		}
+
 		return classifyError(key, out)
 	}
 
@@ -352,6 +375,50 @@ func (c *Client) storePassword(ctx context.Context, password string) error {
 	}
 
 	return nil
+}
+
+// encodeValue percent-encodes characters that act as delimiters in the
+// keepassxc-cli stdin prompt protocol (\n and \r), plus the escape character
+// itself (%) to make the encoding unambiguous. This allows arbitrary values —
+// including multiline strings — to be stored safely.
+//
+// Only three substitutions are made (in order):
+//
+//	%  → %25
+//	\r → %0D
+//	\n → %0A
+func encodeValue(s string) string {
+	s = strings.ReplaceAll(s, "%", "%25")
+	s = strings.ReplaceAll(s, "\r", "%0D")
+	s = strings.ReplaceAll(s, "\n", "%0A")
+
+	return s
+}
+
+// decodeValue reverses encodeValue. Substitutions are applied in reverse order
+// so that the literal sequence "%25" is not double-decoded.
+//
+//	%0A → \n
+//	%0D → \r
+//	%25 → %
+func decodeValue(s string) string {
+	s = strings.ReplaceAll(s, "%0A", "\n")
+	s = strings.ReplaceAll(s, "%0D", "\r")
+	s = strings.ReplaceAll(s, "%25", "%")
+
+	return s
+}
+
+// unavailableOrWrap returns ErrUnavailable when err indicates keepassxc-cli
+// could not be found in PATH (exec.ErrNotFound), otherwise wraps err with the
+// given operation description. Used in methods that call cmd.Output() and need
+// to distinguish "binary missing" from other exec failures.
+func unavailableOrWrap(op string, err error) error {
+	if errors.Is(err, exec.ErrNotFound) {
+		return fmt.Errorf("keepassxc %s: %w", op, ErrUnavailable)
+	}
+
+	return fmt.Errorf("keepassxc %s: %w", op, err)
 }
 
 // classifyError maps keepassxc-cli stderr output to sentinel errors.

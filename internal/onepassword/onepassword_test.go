@@ -8,6 +8,61 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestParsePasswordOutput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   []byte
+		want string
+	}{
+		{
+			name: "plain value — trailing newline stripped",
+			in:   []byte("hunter2\n"),
+			want: "hunter2",
+		},
+		{
+			name: "multiline value with LF — internal newline preserved",
+			in:   []byte("line1\nline2\n"),
+			want: "line1\nline2",
+		},
+		{
+			name: "multiline value with CRLF — internal CRLF preserved",
+			in:   []byte("line1\r\nline2\n"),
+			want: "line1\r\nline2",
+		},
+		{
+			name: "yaml block — all internal newlines preserved",
+			in:   []byte("key: value\nnested:\n  - item1\n  - item2\n"),
+			want: "key: value\nnested:\n  - item1\n  - item2",
+		},
+		{
+			name: "value with literal percent — unchanged",
+			in:   []byte("100%\n"),
+			want: "100%",
+		},
+		{
+			name: "empty output",
+			in:   []byte("\n"),
+			want: "",
+		},
+		{
+			name: "no trailing newline — value unchanged",
+			in:   []byte("hunter2"),
+			want: "hunter2",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := onepassword.ParsePasswordOutput(tc.in)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestParseVaultNames(t *testing.T) {
 	t.Parallel()
 
