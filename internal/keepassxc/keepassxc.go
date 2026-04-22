@@ -330,7 +330,11 @@ func (c *Client) createDB(ctx context.Context) error {
 
 // readPassword retrieves the database password from the macOS login keychain
 // under service "envsecrets-keepassxc-<vault>". Falls back to the access-details
-// file in ~/Documents and restores the keychain entry if the primary source is missing.
+// file in ~/Documents and restores the keychain entry if the item is not found.
+//
+// The fallback is only attempted when `security` exits with a non-zero status
+// (item not found). Other errors — context cancellation, binary not in PATH,
+// permission failures — are returned immediately so they are not masked.
 func (c *Client) readPassword(ctx context.Context) (string, error) {
 	svc := "envsecrets-keepassxc-" + c.vault
 
@@ -346,7 +350,14 @@ func (c *Client) readPassword(ctx context.Context) (string, error) {
 		return strings.TrimRight(string(out), "\n"), nil
 	}
 
-	// Login-keychain entry missing — fall back to the access-details file.
+	// Only fall back to the access file when security exited non-zero (item not
+	// found). Any other failure — context cancelled, binary missing, permission
+	// denied — is returned directly so callers see the real cause.
+	if _, ok := errors.AsType[*exec.ExitError](err); !ok {
+		return "", fmt.Errorf("reading password for %q from login keychain: %w", svc, err)
+	}
+
+	// Login-keychain item not found — fall back to the access-details file.
 	pw, fileErr := c.readAccessFile()
 	if fileErr != nil {
 		return "", fmt.Errorf(
