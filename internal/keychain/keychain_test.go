@@ -50,6 +50,14 @@ func TestParsePasswordOutput(t *testing.T) {
 			in:   []byte("hunter2"),
 			want: "hunter2",
 		},
+		{
+			// Regression: TrimRight would strip ALL trailing newlines, destroying
+			// a secret that intentionally ends with a blank line. TrimSuffix
+			// removes exactly one — the newline appended by the CLI.
+			name: "value ending with newline — only the CLI newline stripped",
+			in:   []byte("value\n\n"),
+			want: "value\n",
+		},
 	}
 
 	for _, tc := range tests {

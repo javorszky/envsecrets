@@ -255,11 +255,12 @@ To access your secrets without the envsecrets CLI:
 }
 
 // ParsePasswordOutput extracts the secret value from the raw bytes returned by
-// `op read`. It trims the single trailing newline that the CLI appends to its
-// output, while preserving any internal newlines that are part of the value
-// (e.g. multiline YAML blocks).
+// `op read`. It trims exactly one trailing newline (the one the CLI appends to
+// its output), while preserving any internal newlines and any trailing newlines
+// that are part of the value itself (e.g. a secret that intentionally ends
+// with a blank line).
 func ParsePasswordOutput(out []byte) string {
-	return strings.TrimRight(string(out), "\n")
+	return strings.TrimSuffix(string(out), "\n")
 }
 
 // ParseVaultNames extracts vault names from the JSON array returned by

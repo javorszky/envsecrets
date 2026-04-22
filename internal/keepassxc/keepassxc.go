@@ -303,6 +303,10 @@ func (c *Client) createDB(ctx context.Context) error {
 	cmd.Stdin = strings.NewReader(pw + "\n" + pw + "\n")
 
 	if out, err := cmd.CombinedOutput(); err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return fmt.Errorf("creating keepassxc database: %w", ErrUnavailable)
+		}
+
 		return fmt.Errorf("creating keepassxc database: %w\n%s", err, out)
 	}
 
