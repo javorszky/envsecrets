@@ -74,9 +74,18 @@ func (c *Client) Get(ctx context.Context, service string) (string, error) {
 
 	out, err := cmd.Output()
 	if err != nil {
-		if _, ok := errors.AsType[*exec.ExitError](err); ok {
+		exitErr, ok := errors.AsType[*exec.ExitError](err)
+		if ok && exitErr.ExitCode() == 44 {
 			// exit code 44 = "The specified item could not be found in the keychain."
 			return "", ErrNotFound
+		}
+
+		// Non-44 ExitError: include stderr so callers see the real diagnostic
+		// (e.g. keychain locked, permission denied) rather than just "exit status N".
+		if ok {
+			if msg := strings.TrimSpace(string(exitErr.Stderr)); msg != "" {
+				return "", fmt.Errorf("keychain get %q: %w\n%s", service, err, msg)
+			}
 		}
 
 		return "", fmt.Errorf("keychain get %q: %w", service, err)
@@ -470,7 +479,8 @@ func (c *Client) remove(ctx context.Context, service string) error {
 	)
 
 	if out, err := cmd.CombinedOutput(); err != nil {
-		if _, ok := errors.AsType[*exec.ExitError](err); ok {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok && exitErr.ExitCode() == 44 {
+			// exit code 44 = "The specified item could not be found in the keychain."
 			return ErrNotFound
 		}
 
