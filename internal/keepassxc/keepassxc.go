@@ -478,7 +478,11 @@ func classifyError(key string, out []byte) error {
 // --- access-details file -------------------------------------------------------
 
 func (c *Client) accessFilePath() string {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = os.Getenv("HOME")
+	}
+
 	return filepath.Join(home, "Documents", "envsecrets-"+c.vault+"-keepassxc-access.txt")
 }
 

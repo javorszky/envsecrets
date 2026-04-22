@@ -41,7 +41,11 @@ type Client struct {
 
 // New returns a Client targeting a per-vault keychain file.
 func New(vault string) *Client {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = os.Getenv("HOME")
+	}
+
 	dir := filepath.Join(home, ".local", "share", "envsecrets")
 
 	return &Client{
@@ -388,7 +392,11 @@ func (c *Client) readKeychainPassword(ctx context.Context) (string, error) {
 // keychain vault is first set up. It lives in ~/Documents so the user can
 // always find the password even if the login-keychain entry is lost.
 func (c *Client) accessFilePath() string {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = os.Getenv("HOME")
+	}
+
 	return filepath.Join(home, "Documents", "envsecrets-"+c.vault+"-keychain-access.txt")
 }
 

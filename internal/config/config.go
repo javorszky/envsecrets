@@ -205,6 +205,10 @@ func ValidateStem(s string) bool {
 // stems and must not contain path separators or other special characters.
 // Returns a joined error listing every invalid field.
 func Validate(cfg *Config) error {
+	if cfg == nil {
+		return nil
+	}
+
 	var errs []error
 
 	if !ValidateStem(cfg.Vault) {

@@ -144,7 +144,7 @@ func (m *Manager) Get(ctx context.Context, key string) (string, error) {
 			return "", fmt.Errorf("key %q not found in keychain or %s", key, m.durableName)
 		}
 
-		return "", fmt.Errorf("%s read: %w", strings.ToLower(m.durableName), err)
+		return "", fmt.Errorf("%s read: %w", m.durableName, err)
 	}
 
 	// Warm the Keychain so next time we don't need the durable store.
@@ -202,7 +202,7 @@ func (m *Manager) Delete(ctx context.Context, key string) error {
 
 	if m.durable.Available(ctx) {
 		if err := m.durable.Delete(ctx, key); err != nil && !isDurableNotFound(err) {
-			errs = append(errs, fmt.Errorf("%s delete: %w", strings.ToLower(m.durableName), err))
+			errs = append(errs, fmt.Errorf("%s delete: %w", m.durableName, err))
 		}
 	} else {
 		fmt.Fprintf(m.warn, "warning: %s unavailable; %q removed from keychain only\n", m.durableName, key)
@@ -218,9 +218,17 @@ func (m *Manager) Sync(ctx context.Context) (synced int, err error) {
 		return 0, fmt.Errorf("%s is unavailable; cannot sync", m.durableName)
 	}
 
+	// Ensure the durable vault exists before listing; for KeePassXC this
+	// creates the .kdbx file on the first sync on a new machine.
+	if created, ensureErr := m.durable.EnsureVault(ctx); ensureErr != nil {
+		return 0, fmt.Errorf("could not ensure %s vault: %w", m.durableName, ensureErr)
+	} else if created {
+		fmt.Fprintf(m.warn, "info: %s vault created\n", m.durableName)
+	}
+
 	keys, err := m.durable.List(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("listing %s vault: %w", strings.ToLower(m.durableName), err)
+		return 0, fmt.Errorf("listing %s vault: %w", m.durableName, err)
 	}
 
 	for _, key := range keys {
