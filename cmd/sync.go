@@ -10,14 +10,15 @@ import (
 
 var syncCmd = &cobra.Command{
 	Use:   "sync",
-	Short: "Pull all secrets from 1Password into Keychain",
-	Long: `Sync pulls every item from the configured 1Password vault and writes
-it into the local macOS Keychain.
+	Short: "Pull all secrets from the durable store into Keychain",
+	Long: `Sync pulls every item from the configured durable store (1Password or
+KeePassXC) and writes it into the local macOS Keychain.
 
 Run this once on a new machine after cloning a project to bootstrap
 your local Keychain. After this, all fetches can work fully offline.
 
-Requires the 1Password desktop app to be running and unlocked.
+Requires the durable store to be available (1Password app running and
+unlocked, or keepassxc-cli installed for KeePassXC).
 
 Examples:
   envsecrets sync

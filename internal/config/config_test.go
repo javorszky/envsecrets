@@ -405,6 +405,91 @@ func TestAllFields(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// TestValidateStem — character-set guard for vault / kpxc_db stems
+// ---------------------------------------------------------------------------
+
+func TestValidateStem(t *testing.T) {
+	t.Parallel()
+
+	valid := []string{
+		"envsecrets",
+		"work",
+		"my-project",
+		"my_project",
+		"Project123",
+		"a",
+		"A1",
+		"abc-def_ghi",
+	}
+
+	invalid := []string{
+		"",
+		"../escape",
+		"../../etc/passwd",
+		"/absolute/path",
+		"has space",
+		".hidden",
+		"-starts-with-dash",
+		"_starts_with_underscore",
+		"has.dot",
+		"has/slash",
+		"has\\backslash",
+		"has\x00null",
+	}
+
+	for _, s := range valid {
+		s := s
+		t.Run("valid/"+s, func(t *testing.T) {
+			t.Parallel()
+			assert.True(t, config.ValidateStem(s), "expected %q to be valid", s)
+		})
+	}
+
+	for _, s := range invalid {
+		s := s
+		t.Run("invalid/"+s, func(t *testing.T) {
+			t.Parallel()
+			assert.False(t, config.ValidateStem(s), "expected %q to be invalid", s)
+		})
+	}
+}
+
+func TestValidate(t *testing.T) {
+	t.Parallel()
+
+	t.Run("valid config passes", func(t *testing.T) {
+		t.Parallel()
+		cfg := &config.Config{Vault: "envsecrets", KpxcDB: "envsecrets"}
+		assert.NoError(t, config.Validate(cfg))
+	})
+
+	t.Run("invalid vault", func(t *testing.T) {
+		t.Parallel()
+		cfg := &config.Config{Vault: "../../bad", KpxcDB: "envsecrets"}
+		err := config.Validate(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "vault")
+	})
+
+	t.Run("invalid kpxc_db", func(t *testing.T) {
+		t.Parallel()
+		cfg := &config.Config{Vault: "envsecrets", KpxcDB: "/absolute/path"}
+		err := config.Validate(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "kpxc_db")
+	})
+
+	t.Run("both invalid returns joined error", func(t *testing.T) {
+		t.Parallel()
+		cfg := &config.Config{Vault: "../bad", KpxcDB: "/also/bad"}
+		err := config.Validate(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "vault")
+		assert.Contains(t, err.Error(), "kpxc_db")
+	})
+}
+
+// ---------------------------------------------------------------------------
 // TestSourceFlags — bitmask type, constants, and methods
 // ---------------------------------------------------------------------------
 

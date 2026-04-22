@@ -52,19 +52,19 @@ Exported entry point called by `main`. Runs the root Cobra command; exits with c
 
 ### `initConfig()` — `root.go` (unexported)
 
-Calls `config.Load(configFile)`, then iterates `config.AllFields()` and calls `config.ApplyFlag()` for every flag whose `.Changed` is true. Global-scope flags are looked up on `rootCmd.PersistentFlags()`; `"gen-env"`-scope flags on `genEnvCmd.Flags()`. Called automatically by `cobra.OnInitialize` before any command's `RunE`.
+Calls `config.Load(configFile)`, then iterates `config.AllFields()` and calls `config.ApplyFlag()` for every flag whose `.Changed` is true. Global-scope flags are looked up on `rootCmd.PersistentFlags()`; `"gen-env"`-scope flags on `genEnvCmd.Flags()`. Finally calls `config.Validate(cfg)` — if validation fails it prints the error to stderr and exits with code 1. Called automatically by `cobra.OnInitialize` before any command's `RunE`.
 
 ### Command files
 
 | File | Command | Flags | Description |
 |------|---------|-------|-------------|
 | `config.go` | `config` | — | Parent command; groups config subcommands |
-| `config_init.go` | `config init` | — | Writes `~/.config/envsecrets.toml` from `config.GenerateConfigTemplate()`. Errors if file already exists. Prints tip about `op_vault`. |
-| `config_show.go` | `config show` | `--verbose` / `-v` | Prints an emoji-grid table (compact default) or per-source blocks (`--verbose` / `-v`). Verbose mode: one block per setting, each source shows ✅ + value or 🚫 + `(not set)`, with `⬆️ superseded by …` on losing sources and `🏆 ← active` on the winner. Unexported helpers: `srcRow` (type), `verboseOutput()`, `supersededBy()`, `displayWidth()`, `padRight()`, `boolEmoji()`, `sourceCell()`. |
-| `store.go` | `store <key> <value>` | — | Writes a secret via `Manager.Set()`. Uses `cfg.Vault`, `cfg.OpVault`, `cfg.DurableBackend`, `cfg.KpxcDB`. |
+| `config_init.go` | `config init` | — | Writes `~/.config/envsecrets.toml` from `config.GenerateConfigTemplate()`. Errors if file already exists. |
+| `config_show.go` | `config show` | `--verbose` / `-v` | Prints an emoji-grid table (compact default) or per-source blocks (`--verbose` / `-v`). OPTION column width is computed dynamically from the longest key name. Verbose mode: one block per setting, each source shows ✅ + value or 🚫 + `(not set)`, with `⬆️ superseded by …` on losing sources and `🏆 ← active` on the winner. Unexported helpers: `srcRow` (type), `verboseOutput()`, `supersededBy()`, `displayWidth()`, `padRight()`, `boolEmoji()`, `sourceCell()`. |
+| `store.go` | `store <key> <value>` | — | Writes a secret via `Manager.Set()` to Keychain and the configured durable store. |
 | `fetch.go` | `fetch <key>` | — | Reads a secret via `Manager.Get()`. Prints raw value to stdout (no newline). |
 | `update.go` | `update <key> <value>` | — | Semantic alias for `store`; calls `Manager.Set()`. |
-| `delete.go` | `delete <key>` | `--force` / `-f` | Deletes from both backends via `Manager.Delete()`. Prompts for confirmation unless `--force`. |
+| `delete.go` | `delete <key>` | `--force` / `-f` | Deletes from both backends via `Manager.Delete()`. Prompts for confirmation (names the durable store generically) unless `--force`. |
 | `sync.go` | `sync` | — | Pulls all items from the configured durable store into Keychain via `Manager.Sync()`. Reports count. |
 | `gen_env.go` | `gen-env` | `--template` (default `.env.tpl`), `--output` (default `.env`) | Resolves `secret:` prefixed values in a template file via `Manager.Get()`; copies other lines verbatim. Flags registered dynamically from `config.ScopedFields("gen-env")`. |
 
@@ -134,10 +134,10 @@ Governs all resolved runtime configuration. The six configurable fields carry st
 
 | Field | Type | Struct tags | Description |
 |-------|------|-------------|-------------|
-| `Vault` | `string` | `cfg:"vault" env:"ENVSECRETS_VAULT" flag:"vault" default:"envsecrets" scope:"global"` | Name of the dedicated local keychain file. File lives at `~/.local/share/envsecrets/<Vault>.keychain`. |
+| `Vault` | `string` | `cfg:"vault" env:"ENVSECRETS_VAULT" flag:"vault" default:"envsecrets" scope:"global"` | Stem name of the dedicated local keychain file. Must match `[a-zA-Z0-9][a-zA-Z0-9_-]*`. File lives at `~/.local/share/envsecrets/<Vault>.keychain`. |
 | `OpVault` | `string` | `cfg:"op_vault" env:"ENVSECRETS_OP_VAULT" flag:"op-vault" default:"Envsecrets" scope:"global"` | 1Password vault name where secrets are stored. |
-| `DurableBackend` | `string` | `cfg:"durable_backend" env:"ENVSECRETS_DURABLE_BACKEND" flag:"durable-backend" default:"1password" scope:"global"` | Selects the durable backend: `"1password"` (default) or `"keepassxc"`. |
-| `KpxcDB` | `string` | `cfg:"kpxc_db" env:"ENVSECRETS_KPXC_DB" flag:"kpxc-db" default:"" scope:"global"` | KeePassXC database file path. Empty means default: `~/.local/share/envsecrets/<Vault>.kdbx`. |
+| `DurableBackend` | `string` | `cfg:"durable_backend" env:"ENVSECRETS_DURABLE_BACKEND" flag:"durable-backend" default:"1password" scope:"global"` | Selects the durable backend: `"1password"` (default) or `"keepassxc"`. Unrecognised values fall back to `"1password"` with a warning. |
+| `KpxcDB` | `string` | `cfg:"kpxc_db" env:"ENVSECRETS_KPXC_DB" flag:"kpxc-db" default:"envsecrets" scope:"global"` | Stem name of the KeePassXC database. Must match `[a-zA-Z0-9][a-zA-Z0-9_-]*`. Database lives at `~/.local/share/envsecrets/<KpxcDB>.kdbx`. |
 | `Template` | `string` | `cfg:"template" env:"ENVSECRETS_TEMPLATE" flag:"template" default:".env.tpl" scope:"gen-env"` | Path to the `gen-env` template file. |
 | `Output` | `string` | `cfg:"output" env:"ENVSECRETS_OUTPUT" flag:"output" default:".env" scope:"gen-env"` | Path to the `gen-env` output file. |
 | `FilePath` | `string` | — | Resolved path to the config file (may not exist on disk). Not iterated by `AllFields`. |
@@ -153,6 +153,8 @@ Governs all resolved runtime configuration. The six configurable fields carry st
 | `ScopedFields(scope string) []FieldMeta` | Subset of `AllFields()` where `Scope == scope`. Used by `gen_env.go` with `"gen-env"`. |
 | `GetValue(cfg *Config, m FieldMeta) string` | Returns the current string value of the `Config` field described by `m`, using `m.FieldIndex` directly. Used by `config show` to retrieve each field's resolved value. |
 | `ApplyFlag(cfg *Config, key, value string)` | Sets the `Config` field identified by `key` to `value`, sets `SourceFlag` bit on `cfg.Sources[key].Flags`, captures `FlagValue`, and sets `Active=ActiveFlag`. Called by `initConfig` for every changed CLI flag. |
+| `ValidateStem(s string) bool` | Reports whether `s` is a valid stem name: matches `[a-zA-Z0-9][a-zA-Z0-9_-]*`. Used by `Validate`. |
+| `Validate(cfg *Config) error` | Checks that `cfg.Vault` and `cfg.KpxcDB` are valid stem names. Returns a joined error for every invalid field. Called by `initConfig`; on failure prints to stderr and exits 1. |
 | `Load(configFlagValue string) *Config` | Resolves the config file path (`--config` flag → `$ENVSECRETS_CONFIG` → `~/.config/envsecrets.toml`), binds env vars and defaults from struct tags, reads the TOML file, populates all fields via reflection, and returns a fully-populated `*Config`. Does **not** apply flag overrides — the `cmd` layer calls `ApplyFlag` for that. |
 | `GenerateConfigTemplate() string` | Returns a documented TOML config file string, generated dynamically from struct tags. Each field gets a comment block with usage text, CLI flag name, and env var name. Used by `config init`. |
 | `resolvePath(configFlagValue string) string` *(unexported)* | Returns the config file path to use, honouring `--config` flag → `$ENVSECRETS_CONFIG` → default (`~/.config/envsecrets.toml`). |
@@ -270,14 +272,15 @@ Wraps the `keepassxc-cli` tool to store and retrieve secrets from a KeePass data
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `vault` *(unexported)* | `string` | Vault name; determines the login-keychain service name and default database path. |
-| `dbPath` *(unexported)* | `string` | Absolute path to the `.kdbx` database file. |
+| `vault` *(unexported)* | `string` | Vault name; determines the login-keychain service name (`envsecrets-keepassxc-<vault>`). |
+| `dbPath` *(unexported)* | `string` | Absolute path to the `.kdbx` database file, always under `~/.local/share/envsecrets/`. |
 
 ### Exported functions and methods
 
 | Signature | Description |
 |-----------|-------------|
-| `New(vault, dbPath string) *Client` | Constructs a `Client`. If `dbPath` is empty, defaults to `~/.local/share/envsecrets/<vault>.kdbx`. |
+| `DefaultDBPath(stem string) string` | Returns `~/.local/share/envsecrets/<stem>.kdbx`. Used by `New` and exposed so callers can display the resolved path. |
+| `New(vault, stem string) *Client` | Constructs a `Client`. `stem` is a bare name (e.g. `"envsecrets"`); the database path is always `DefaultDBPath(stem)`. |
 | `(c *Client) Available(_ context.Context) bool` | Returns `true` if `keepassxc-cli` is on `$PATH`. |
 | `(c *Client) EnsureVault(ctx context.Context) (bool, error)` | Creates the database if absent (`true, nil`); verifies the stored password is readable if present (`false, nil`). |
 | `(c *Client) Get(ctx context.Context, key string) (string, error)` | Reads the Password field via `keepassxc-cli show --attributes Password`. Returns `ErrNotFound` on miss. |
@@ -310,7 +313,7 @@ Coordinates reads and writes across the two backends through a single unified in
 
 ### `SecretStore` interface
 
-Both `*keychain.Client` and `*onepassword.Client` implement this interface.
+Implemented by `*keychain.Client`, `*onepassword.Client`, and `*keepassxc.Client`.
 
 | Method signature | Description |
 |-----------------|-------------|
@@ -328,19 +331,19 @@ Governs the combined read/write/delete/sync logic across the two `SecretStore` b
 | Field | Type | Description |
 |-------|------|-------------|
 | `kc` *(unexported)* | `SecretStore` | Keychain backend (fast local cache). |
-| `op` *(unexported)* | `SecretStore` | Durable backend — either `*onepassword.Client` or `*keepassxc.Client`, chosen at construction time. |
-| `opName` *(unexported)* | `string` | Display name for the durable backend (`"1Password"` or `"KeePassXC"`). Used in warning and error messages. |
+| `durable` *(unexported)* | `SecretStore` | Durable backend — either `*onepassword.Client` or `*keepassxc.Client`, chosen at construction time. |
+| `durableName` *(unexported)* | `string` | Display name for the durable backend (`"1Password"` or `"KeePassXC"`). Used in warning and error messages. |
 | `warn` *(unexported)* | `io.Writer` | Destination for non-fatal warnings (default: `os.Stderr`). |
 
 ### Exported functions and methods
 
 | Signature | Description |
 |-----------|-------------|
-| `New(keychainVault, opVault, durableBackend, kpxcDB string) *Manager` | Constructs a Manager. When `durableBackend == "keepassxc"` wires `keepassxc.New(keychainVault, kpxcDB)`; otherwise wires `onepassword.New(opVault)`. |
-| `NewWithBackends(kc, op SecretStore) *Manager` | Accepts arbitrary `SecretStore` implementations; used in tests with `stubStore`. Sets `opName = "1Password"`. |
+| `New(keychainVault, opVault, durableBackend, kpxcDB string) *Manager` | Constructs a Manager. `durableBackend` selects `"keepassxc"` → `keepassxc.New(keychainVault, kpxcDB)` or `""` / `"1password"` → `onepassword.New(opVault)`; unrecognised values fall back to 1Password with a stderr warning. |
+| `NewWithBackends(kc, durable SecretStore) *Manager` | Accepts arbitrary `SecretStore` implementations; used in tests with `stubStore`. Sets `durableName = "1Password"`. |
 | `(m *Manager) WithWarningWriter(w io.Writer) *Manager` | Overrides the warning writer; returns `m` for chaining. |
 | `(m *Manager) Get(ctx context.Context, key string) (string, error)` | Keychain first. On miss, tries the durable store (if available) and caches the result back into Keychain. |
-| `(m *Manager) Set(ctx context.Context, key, value string) error` | Calls `kc.EnsureVault` (fatal on error), writes to Keychain (fatal on error), then calls `op.EnsureVault` + `op.Set` (both non-fatal; warnings only). |
+| `(m *Manager) Set(ctx context.Context, key, value string) error` | Calls `kc.EnsureVault` (fatal on error), writes to Keychain (fatal on error), then calls `durable.EnsureVault` + `durable.Set` (both non-fatal; warnings only). |
 | `(m *Manager) Delete(ctx context.Context, key string) error` | Attempts both backends; collects errors via `errors.Join`; `ErrNotFound` on either side is silently ignored. |
 | `(m *Manager) Sync(ctx context.Context) (synced int, err error)` | Lists all keys from the durable store, fetches each, writes to Keychain. Returns count of successfully written keys. |
 
@@ -348,7 +351,7 @@ Governs the combined read/write/delete/sync logic across the two `SecretStore` b
 
 | Signature | Description |
 |-----------|-------------|
-| `isOpNotFound(err error) bool` | Returns true when `err` is `onepassword.ErrNotFound` or `keepassxc.ErrNotFound`. Used by `Get` and `Delete` to treat any durable-backend "not found" uniformly. |
+| `isDurableNotFound(err error) bool` | Returns true when `err` is `onepassword.ErrNotFound` or `keepassxc.ErrNotFound`. Used by `Get` and `Delete` to treat any durable-backend "not found" uniformly. |
 
 ---
 

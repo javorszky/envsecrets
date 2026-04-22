@@ -11,7 +11,7 @@ import (
 var updateCmd = &cobra.Command{
 	Use:   "update <key> <value>",
 	Short: "Update an existing secret",
-	Long: `Update a secret in Keychain and 1Password.
+	Long: `Update a secret in Keychain and the configured durable store.
 
 Semantically equivalent to 'store' — both upsert — but signals intent
 that you expect the key to already exist.

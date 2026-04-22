@@ -11,10 +11,10 @@ import (
 var storeCmd = &cobra.Command{
 	Use:   "store <key> <value>",
 	Short: "Store a new secret",
-	Long: `Store a secret in Keychain and 1Password.
+	Long: `Store a secret in Keychain and the configured durable store.
 
 If the key already exists in either backend, use 'update' instead.
-Both backends are written; 1Password failure is non-fatal.
+Both backends are written; durable store failure is non-fatal.
 
 Examples:
   envsecrets store STRIPE_SECRET sk_live_abc123

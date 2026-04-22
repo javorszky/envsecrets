@@ -1,10 +1,12 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -183,6 +185,43 @@ func ApplyFlag(cfg *Config, key, value string) {
 	s.Active = ActiveFlag
 	s.FlagValue = value
 	cfg.Sources[key] = s
+}
+
+// validStem is the regexp that vault and kpxc_db values must satisfy.
+// A stem must start with an ASCII letter or digit and may only contain ASCII
+// letters, digits, hyphens (-), and underscores (_). This prevents path
+// traversal (no slashes or dots), shell meta-characters, and characters that
+// are invalid in macOS keychain service names or file names.
+var validStem = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
+
+// ValidateStem reports whether s is a valid stem name for use as vault or
+// kpxc_db. Valid stems match [a-zA-Z0-9][a-zA-Z0-9_-]*.
+func ValidateStem(s string) bool {
+	return validStem.MatchString(s)
+}
+
+// Validate checks configuration fields that have restricted character sets.
+// Currently validates vault and kpxc_db, both of which are used as file-name
+// stems and must not contain path separators or other special characters.
+// Returns a joined error listing every invalid field.
+func Validate(cfg *Config) error {
+	var errs []error
+
+	if !ValidateStem(cfg.Vault) {
+		errs = append(errs, fmt.Errorf(
+			"vault %q: must start with a letter or digit and contain only letters, digits, hyphens, and underscores",
+			cfg.Vault,
+		))
+	}
+
+	if !ValidateStem(cfg.KpxcDB) {
+		errs = append(errs, fmt.Errorf(
+			"kpxc_db %q: must start with a letter or digit and contain only letters, digits, hyphens, and underscores",
+			cfg.KpxcDB,
+		))
+	}
+
+	return errors.Join(errs...)
 }
 
 // Load reads the config file (if present) and environment variables, applying

@@ -17,7 +17,7 @@ var (
 var deleteCmd = &cobra.Command{
 	Use:   "delete <key>",
 	Short: "Delete a secret from both backends",
-	Long: `Delete a secret from Keychain and 1Password.
+	Long: `Delete a secret from Keychain and the configured durable store.
 
 Prompts for confirmation unless --force is passed. Errors from each
 backend are reported independently; a miss in one does not prevent
@@ -33,7 +33,7 @@ Examples:
 		key := args[0]
 
 		if !forceFlag {
-			fmt.Fprintf(os.Stdout, "Delete %q from Keychain and 1Password? [y/N] ", key)
+			fmt.Fprintf(os.Stdout, "Delete %q from Keychain and the durable store? [y/N] ", key)
 
 			scanner := bufio.NewScanner(os.Stdin)
 			scanner.Scan()
