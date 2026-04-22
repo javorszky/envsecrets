@@ -11,7 +11,7 @@ import (
 var updateCmd = &cobra.Command{
 	Use:   "update <key> <value>",
 	Short: "Update an existing secret",
-	Long: `Update a secret in Keychain and 1Password.
+	Long: `Update a secret in Keychain and the configured durable store.
 
 Semantically equivalent to 'store' — both upsert — but signals intent
 that you expect the key to already exist.
@@ -23,7 +23,7 @@ Examples:
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		key, value := args[0], args[1]
-		mgr := secrets.New(cfg.Vault, cfg.OpVault)
+		mgr := secrets.New(cfg.Vault, cfg.OpVault, cfg.DurableBackend, cfg.KpxcDB)
 
 		if err := mgr.Set(ctx, key, value); err != nil {
 			return fmt.Errorf("update failed: %w", err)

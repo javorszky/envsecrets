@@ -1,10 +1,12 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -95,10 +97,12 @@ type SourceState struct {
 // The Sources field describes where each value came from.
 // Flag overrides are NOT applied here — the cmd layer must do that after Load returns.
 type Config struct {
-	Vault    string `cfg:"vault"    env:"ENVSECRETS_VAULT"    flag:"vault"    default:"envsecrets" scope:"global"  usage:"local keychain file name — secrets stored at ~/.local/share/envsecrets/<vault>.keychain"`
-	OpVault  string `cfg:"op_vault" env:"ENVSECRETS_OP_VAULT" flag:"op-vault" default:"Envsecrets" scope:"global"  usage:"1Password vault name — created automatically on first write if it does not exist"`
-	Template string `cfg:"template" env:"ENVSECRETS_TEMPLATE" flag:"template" default:".env.tpl"   scope:"gen-env" usage:"gen-env template file path — may contain secret:KEY references"`
-	Output   string `cfg:"output"   env:"ENVSECRETS_OUTPUT"   flag:"output"   default:".env"       scope:"gen-env" usage:"gen-env output file path — add this file to .gitignore"`
+	Vault          string `cfg:"vault"           env:"ENVSECRETS_VAULT"           flag:"vault"           default:"envsecrets" scope:"global"  usage:"local keychain file name — secrets stored at ~/.local/share/envsecrets/<vault>.keychain"`
+	OpVault        string `cfg:"op_vault"        env:"ENVSECRETS_OP_VAULT"        flag:"op-vault"        default:"Envsecrets" scope:"global"  usage:"1Password vault name — created automatically on first write if it does not exist"`
+	DurableBackend string `cfg:"durable_backend" env:"ENVSECRETS_DURABLE_BACKEND" flag:"durable-backend" default:"1password"  scope:"global"  usage:"durable secret backend: \"1password\" or \"keepassxc\""`
+	KpxcDB         string `cfg:"kpxc_db"         env:"ENVSECRETS_KPXC_DB"         flag:"kpxc-db"         default:"envsecrets" scope:"global"  usage:"KeePassXC database stem name — stored as ~/.local/share/envsecrets/<name>.kdbx"`
+	Template       string `cfg:"template"        env:"ENVSECRETS_TEMPLATE"        flag:"template"        default:".env.tpl"   scope:"gen-env" usage:"gen-env template file path — may contain secret:KEY references"`
+	Output         string `cfg:"output"          env:"ENVSECRETS_OUTPUT"          flag:"output"          default:".env"       scope:"gen-env" usage:"gen-env output file path — add this file to .gitignore"`
 
 	// Non-configurable metadata — no struct tags, not iterated by AllFields.
 	FilePath  string
@@ -181,6 +185,47 @@ func ApplyFlag(cfg *Config, key, value string) {
 	s.Active = ActiveFlag
 	s.FlagValue = value
 	cfg.Sources[key] = s
+}
+
+// validStem is the regexp that vault and kpxc_db values must satisfy.
+// A stem must start with an ASCII letter or digit and may only contain ASCII
+// letters, digits, hyphens (-), and underscores (_). This prevents path
+// traversal (no slashes or dots), shell meta-characters, and characters that
+// are invalid in macOS keychain service names or file names.
+var validStem = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
+
+// ValidateStem reports whether s is a valid stem name for use as vault or
+// kpxc_db. Valid stems match [a-zA-Z0-9][a-zA-Z0-9_-]*.
+func ValidateStem(s string) bool {
+	return validStem.MatchString(s)
+}
+
+// Validate checks configuration fields that have restricted character sets.
+// Currently validates vault and kpxc_db, both of which are used as file-name
+// stems and must not contain path separators or other special characters.
+// Returns a joined error listing every invalid field.
+func Validate(cfg *Config) error {
+	if cfg == nil {
+		return nil
+	}
+
+	var errs []error
+
+	if !ValidateStem(cfg.Vault) {
+		errs = append(errs, fmt.Errorf(
+			"vault %q: must start with a letter or digit and contain only letters, digits, hyphens, and underscores",
+			cfg.Vault,
+		))
+	}
+
+	if !ValidateStem(cfg.KpxcDB) {
+		errs = append(errs, fmt.Errorf(
+			"kpxc_db %q: must start with a letter or digit and contain only letters, digits, hyphens, and underscores",
+			cfg.KpxcDB,
+		))
+	}
+
+	return errors.Join(errs...)
 }
 
 // Load reads the config file (if present) and environment variables, applying

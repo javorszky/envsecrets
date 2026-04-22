@@ -41,7 +41,11 @@ type Client struct {
 
 // New returns a Client targeting a per-vault keychain file.
 func New(vault string) *Client {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = os.Getenv("HOME")
+	}
+
 	dir := filepath.Join(home, ".local", "share", "envsecrets")
 
 	return &Client{
@@ -74,15 +78,24 @@ func (c *Client) Get(ctx context.Context, service string) (string, error) {
 
 	out, err := cmd.Output()
 	if err != nil {
-		if _, ok := errors.AsType[*exec.ExitError](err); ok {
+		exitErr, ok := errors.AsType[*exec.ExitError](err)
+		if ok && exitErr.ExitCode() == 44 {
 			// exit code 44 = "The specified item could not be found in the keychain."
 			return "", ErrNotFound
+		}
+
+		// Non-44 ExitError: include stderr so callers see the real diagnostic
+		// (e.g. keychain locked, permission denied) rather than just "exit status N".
+		if ok {
+			if msg := strings.TrimSpace(string(exitErr.Stderr)); msg != "" {
+				return "", fmt.Errorf("keychain get %q: %w\n%s", service, err, msg)
+			}
 		}
 
 		return "", fmt.Errorf("keychain get %q: %w", service, err)
 	}
 
-	return strings.TrimRight(string(out), "\n"), nil
+	return ParsePasswordOutput(out), nil
 }
 
 // Set stores or overwrites a secret. It deletes any existing entry first to
@@ -139,6 +152,15 @@ func (c *Client) List(ctx context.Context) ([]string, error) {
 	}
 
 	return ParseDumpServices(string(out)), nil
+}
+
+// ParsePasswordOutput extracts the secret value from the raw bytes returned by
+// `security find-generic-password -w`. It trims exactly one trailing newline
+// (the one the CLI appends to its output), while preserving any internal
+// newlines and any trailing newlines that are part of the value itself (e.g.
+// a secret that intentionally ends with a blank line).
+func ParsePasswordOutput(out []byte) string {
+	return strings.TrimSuffix(string(out), "\n")
 }
 
 // ParseDumpServices extracts unique service names from the output of
@@ -307,10 +329,14 @@ func (c *Client) storeKeychainPassword(ctx context.Context, password string) err
 //
 // Primary source: the login keychain (service "envsecrets-keychain-<vault>").
 //
-// Fallback: if that entry is missing (e.g. after a machine migration or a
-// keychain reset), the access-details file written to ~/Documents at creation
-// time is read instead.  The entry is then restored in the login keychain so
-// subsequent calls are fast again.
+// Fallback: if that entry is not found (security exits with code 44, e.g.
+// after a machine migration or a keychain reset), the access-details file
+// written to ~/Documents at creation time is read instead. The entry is then
+// restored in the login keychain so subsequent calls are fast again.
+//
+// Any other failure — context cancellation, binary not in PATH, permission
+// denied, keychain locked — is returned immediately so callers see the real
+// cause rather than a confusing access-file error.
 func (c *Client) readKeychainPassword(ctx context.Context) (string, error) {
 	svc := "envsecrets-keychain-" + c.vault
 
@@ -324,10 +350,28 @@ func (c *Client) readKeychainPassword(ctx context.Context) (string, error) {
 
 	out, err := cmd.Output()
 	if err == nil {
-		return strings.TrimRight(string(out), "\n"), nil
+		return ParsePasswordOutput(out), nil
 	}
 
-	// Login-keychain entry missing — try the access-details file.
+	// Only fall back to the access-details file when security reports that the
+	// item was not found (exit code 44). Any other error — context cancelled,
+	// binary missing, permission denied, keychain locked — is returned directly.
+	exitErr, ok := errors.AsType[*exec.ExitError](err)
+	if !ok {
+		return "", fmt.Errorf("reading password for %q from login keychain: %w", svc, err)
+	}
+
+	if exitErr.ExitCode() != 44 {
+		// Include security's stderr so callers see the real diagnostic
+		// (e.g. "errSecInteractionNotAllowed") rather than just "exit status N".
+		if msg := strings.TrimSpace(string(exitErr.Stderr)); msg != "" {
+			return "", fmt.Errorf("reading password for %q from login keychain: %w\n%s", svc, err, msg)
+		}
+
+		return "", fmt.Errorf("reading password for %q from login keychain: %w", svc, err)
+	}
+
+	// Login-keychain item not found — try the access-details file.
 	password, fileErr := c.readAccessFile()
 	if fileErr != nil {
 		return "", fmt.Errorf(
@@ -348,7 +392,11 @@ func (c *Client) readKeychainPassword(ctx context.Context) (string, error) {
 // keychain vault is first set up. It lives in ~/Documents so the user can
 // always find the password even if the login-keychain entry is lost.
 func (c *Client) accessFilePath() string {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = os.Getenv("HOME")
+	}
+
 	return filepath.Join(home, "Documents", "envsecrets-"+c.vault+"-keychain-access.txt")
 }
 
@@ -439,7 +487,8 @@ func (c *Client) remove(ctx context.Context, service string) error {
 	)
 
 	if out, err := cmd.CombinedOutput(); err != nil {
-		if _, ok := errors.AsType[*exec.ExitError](err); ok {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok && exitErr.ExitCode() == 44 {
+			// exit code 44 = "The specified item could not be found in the keychain."
 			return ErrNotFound
 		}
 

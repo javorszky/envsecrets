@@ -15,14 +15,15 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:   "envsecrets",
-	Short: "Manage env secrets across macOS Keychain and 1Password",
+	Short: "Manage env secrets across macOS Keychain and a durable store",
 	Long: `envsecrets stores, retrieves, updates, and deletes secrets using
-macOS Keychain as the primary (always-local) backend and 1Password
-as a durable sync layer.
+macOS Keychain as the primary (always-local) backend and a configurable
+durable store (1Password or KeePassXC) as the sync layer.
 
-Reads hit Keychain first. On a miss, 1Password is tried and the result
-is cached back into Keychain. Writes go to both; 1Password failure is a
-warning, not an error, so offline workflows continue uninterrupted.`,
+Reads hit Keychain first. On a miss, the durable store is consulted and
+the result is cached back into Keychain. Writes go to both; durable store
+failure is a warning, not an error, so offline workflows continue
+uninterrupted.`,
 }
 
 // Execute is called by main.
@@ -67,5 +68,12 @@ func initConfig() {
 				config.ApplyFlag(cfg, m.Key, f.Value.String())
 			}
 		}
+	}
+
+	// Validate fields that are used as file-name stems. Exit immediately with a
+	// clear message rather than failing later with a confusing path error.
+	if err := config.Validate(cfg); err != nil {
+		fmt.Fprintln(os.Stderr, "envsecrets: invalid configuration:", err)
+		os.Exit(1)
 	}
 }

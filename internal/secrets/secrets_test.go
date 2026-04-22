@@ -113,7 +113,7 @@ func (s *stubStore) EnsureVault(_ context.Context) (bool, error) {
 // newMgr wires up a Manager with stub backends and a warning capture buffer.
 func newMgr(kc, op *stubStore) (*secrets.Manager, *strings.Builder) {
 	warn := &strings.Builder{}
-	return secrets.NewWithBackends(kc, op).WithWarningWriter(warn), warn
+	return secrets.NewWithBackends(kc, op, "stub").WithWarningWriter(warn), warn
 }
 
 // ---------------------------------------------------------------------------
@@ -173,7 +173,7 @@ func TestManager_Get(t *testing.T) {
 			opAvail:         false,
 			key:             "MY_KEY",
 			wantErr:         true,
-			wantErrContains: "1Password is unavailable",
+			wantErrContains: "stub is unavailable",
 		},
 		{
 			name:            "keychain miss, 1password available but key absent — error",
@@ -182,7 +182,7 @@ func TestManager_Get(t *testing.T) {
 			opData:          map[string]string{},
 			key:             "MY_KEY",
 			wantErr:         true,
-			wantErrContains: `not found in keychain or 1Password`,
+			wantErrContains: `not found in keychain or stub`,
 		},
 		{
 			name:            "keychain miss, 1password returns unexpected error",
@@ -191,7 +191,7 @@ func TestManager_Get(t *testing.T) {
 			opGetErr:        errOpIO,
 			key:             "MY_KEY",
 			wantErr:         true,
-			wantErrContains: "1password read",
+			wantErrContains: "stub read",
 		},
 		{
 			name:            "keychain returns non-ErrNotFound error",
@@ -277,7 +277,7 @@ func TestManager_Set(t *testing.T) {
 			key:         "DB_PASS",
 			value:       "secret123",
 			wantKCAfter: map[string]string{"DB_PASS": "secret123"},
-			wantWarning: "1Password unavailable",
+			wantWarning: "stub unavailable",
 		},
 		{
 			name:        "1password write fails — keychain ok, warns",
@@ -286,7 +286,7 @@ func TestManager_Set(t *testing.T) {
 			key:         "DB_PASS",
 			value:       "secret123",
 			wantKCAfter: map[string]string{"DB_PASS": "secret123"},
-			wantWarning: "1Password write failed",
+			wantWarning: "stub write failed",
 		},
 		{
 			name:            "keychain write fails — error returned, 1password not tried",
@@ -305,7 +305,7 @@ func TestManager_Set(t *testing.T) {
 			opVaultCreated: true,
 			wantKCAfter:    map[string]string{"DB_PASS": "secret123"},
 			wantOPAfter:    map[string]string{"DB_PASS": "secret123"},
-			wantWarning:    "info: 1Password vault created",
+			wantWarning:    "info: stub vault created",
 		},
 		{
 			name:             "vault ensure fails — warning emitted, write still attempted",
@@ -315,7 +315,7 @@ func TestManager_Set(t *testing.T) {
 			opVaultEnsureErr: errors.New("vault ensure failed"),
 			wantKCAfter:      map[string]string{"DB_PASS": "secret123"},
 			wantOPAfter:      map[string]string{"DB_PASS": "secret123"},
-			wantWarning:      "could not ensure 1Password vault",
+			wantWarning:      "could not ensure stub vault",
 		},
 		{
 			name:           "keychain vault created on first use — info message emitted",
@@ -461,7 +461,7 @@ func TestManager_Delete(t *testing.T) {
 			opDeleteErr:     errors.New("vault unavailable"),
 			key:             "K",
 			wantErr:         true,
-			wantErrContains: "1password delete",
+			wantErrContains: "stub delete",
 		},
 		{
 			name:            "both backends return unexpected errors — both included via errors.Join",
@@ -526,6 +526,7 @@ func TestManager_Sync(t *testing.T) {
 		opListErr       error
 		opGetErr        error
 		kcSetErr        error
+		opEnsureErr     error // if non-nil, stub's EnsureVault returns this
 		wantSynced      int
 		wantErr         bool
 		wantErrContains string
@@ -549,14 +550,14 @@ func TestManager_Sync(t *testing.T) {
 			name:            "1password unavailable — error",
 			opAvail:         false,
 			wantErr:         true,
-			wantErrContains: "1Password is unavailable",
+			wantErrContains: "stub is unavailable",
 		},
 		{
 			name:            "List returns error — propagated",
 			opAvail:         true,
 			opListErr:       errors.New("network timeout"),
 			wantErr:         true,
-			wantErrContains: "listing 1password vault",
+			wantErrContains: "listing stub vault",
 		},
 		{
 			name:        "Get fails for all items — zero synced, warning per item",
@@ -574,6 +575,18 @@ func TestManager_Sync(t *testing.T) {
 			wantSynced:  0,
 			wantWarning: `could not write "K1" to keychain`,
 		},
+		{
+			// Non-keepassxc backends must NOT be auto-created on sync, so a
+			// failing EnsureVault on the stub must never be reached. If the
+			// gating regresses and Sync calls EnsureVault on a non-keepassxc
+			// durable, this case will surface the error.
+			name:        "non-keepassxc durable is NOT auto-created on sync",
+			opAvail:     true,
+			opData:      map[string]string{"K1": "v1"},
+			opEnsureErr: errors.New("EnsureVault must not be called"),
+			wantSynced:  1,
+			wantKCKeys:  []string{"K1"},
+		},
 	}
 
 	for _, tc := range tests {
@@ -586,6 +599,7 @@ func TestManager_Sync(t *testing.T) {
 			op := newStubStore(tc.opAvail, onepassword.ErrNotFound, tc.opData)
 			op.listErr = tc.opListErr
 			op.getErr = tc.opGetErr
+			op.vaultEnsureErr = tc.opEnsureErr
 
 			mgr, warnBuf := newMgr(kc, op)
 

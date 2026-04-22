@@ -13,8 +13,8 @@ var fetchCmd = &cobra.Command{
 	Short: "Fetch a secret",
 	Long: `Fetch a secret value, printing it to stdout.
 
-Keychain is tried first. On a miss, 1Password is consulted and the
-result is written back into Keychain for future offline use.
+Keychain is tried first. On a miss, the durable store is consulted and
+the result is written back into Keychain for future offline use.
 
 The value is printed to stdout with no trailing newline, making it
 safe to use in shell substitution:
@@ -28,7 +28,7 @@ Examples:
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		key := args[0]
-		mgr := secrets.New(cfg.Vault, cfg.OpVault)
+		mgr := secrets.New(cfg.Vault, cfg.OpVault, cfg.DurableBackend, cfg.KpxcDB)
 
 		val, err := mgr.Get(ctx, key)
 		if err != nil {
