@@ -70,9 +70,24 @@ func (c *Client) EnsureVault(ctx context.Context) (bool, error) {
 		return true, nil
 	}
 
-	// DB already exists — verify we can read the stored password.
-	if _, err := c.readPassword(ctx); err != nil {
+	// DB already exists — verify the stored password actually unlocks it.
+	// Reading the password from the keychain alone is insufficient: the DB
+	// may have been re-keyed externally or may be corrupted. Run a cheap
+	// keepassxc-cli ls to confirm the file can be opened.
+	pw, err := c.readPassword(ctx)
+	if err != nil {
 		return false, fmt.Errorf("keepassxc: cannot read database password: %w", err)
+	}
+
+	probe := exec.CommandContext(ctx,
+		"keepassxc-cli", "ls",
+		"--quiet",
+		c.dbPath,
+	)
+	probe.Stdin = strings.NewReader(pw + "\n")
+
+	if out, err := probe.CombinedOutput(); err != nil {
+		return false, fmt.Errorf("keepassxc: cannot open database %q (wrong password or corrupted file): %w\n%s", c.dbPath, err, out)
 	}
 
 	return false, nil
