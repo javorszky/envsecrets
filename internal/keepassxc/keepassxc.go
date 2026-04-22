@@ -19,6 +19,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // ErrNotFound is returned when a KeePassXC entry does not exist.
@@ -27,10 +29,11 @@ var ErrNotFound = errors.New("keepassxc: entry not found")
 // ErrUnavailable is returned when keepassxc-cli is not installed.
 var ErrUnavailable = errors.New("keepassxc: keepassxc-cli unavailable")
 
-// ErrInvalidKey is returned when a key contains characters that KeePassXC
-// interprets as path separators or group markers, which would make the entry
-// invisible to List and inconsistent across Get/Set/Delete/List.
-var ErrInvalidKey = errors.New("keepassxc: key must not contain '/' or start with whitespace")
+// ErrInvalidKey is returned when a key fails ValidateKey: it is empty,
+// contains '/' (KeePassXC path separator), contains a newline or carriage
+// return (breaks the keepassxc-cli stdin protocol), or has leading or
+// trailing Unicode whitespace (causes List round-trip mismatches).
+var ErrInvalidKey = errors.New("keepassxc: key must be non-empty and must not contain '/', newlines, or leading/trailing whitespace")
 
 // Client holds configuration for KeePassXC operations.
 type Client struct {
@@ -238,50 +241,74 @@ func (c *Client) List(ctx context.Context) ([]string, error) {
 }
 
 // ValidateKey reports whether key is safe to use as a KeePassXC entry title.
-// KeePassXC interprets "/" as a path separator (creating nested groups) and
-// indented output lines are filtered by ParseListOutput, so keys with those
-// characters cause Get/Set/Delete to succeed but List/Sync to silently miss
-// the entry. ValidateKey rejects:
-//   - empty keys
-//   - keys containing "/"
-//   - keys with leading whitespace (space or tab)
+// A valid key must satisfy all of the following:
+//   - non-empty
+//   - no '/' — KeePassXC treats it as a path separator, routing the entry into
+//     a nested group where it becomes invisible to List and Sync
+//   - no '\n' or '\r' — these terminate the keepassxc-cli stdin prompt lines
+//     and would corrupt the password-entry protocol used by add/edit
+//   - no leading or trailing Unicode whitespace — keepassxc-cli ls output does
+//     not add surrounding whitespace to titles, so any such whitespace would
+//     cause Get/Set/Delete to address a key that List/Sync never returns
 //
-// Returns ErrInvalidKey when the key fails validation, nil otherwise.
+// Returns ErrInvalidKey when the key fails any check, nil otherwise.
 func ValidateKey(key string) error {
-	if key == "" {
-		return ErrInvalidKey
-	}
-
-	if strings.Contains(key, "/") {
-		return ErrInvalidKey
-	}
-
-	if strings.HasPrefix(key, " ") || strings.HasPrefix(key, "\t") {
+	if key == "" ||
+		strings.ContainsAny(key, "/\n\r") ||
+		unicode.IsSpace(firstRune(key)) ||
+		unicode.IsSpace(lastRune(key)) {
 		return ErrInvalidKey
 	}
 
 	return nil
 }
 
+// firstRune returns the first Unicode code point of s.
+// Callers must ensure s is non-empty.
+func firstRune(s string) rune {
+	r, _ := utf8.DecodeRuneInString(s)
+	return r
+}
+
+// lastRune returns the last Unicode code point of s.
+// Callers must ensure s is non-empty.
+func lastRune(s string) rune {
+	r, _ := utf8.DecodeLastRuneInString(s)
+	return r
+}
+
 // ParseListOutput extracts root-level entry names from `keepassxc-cli ls` output.
-// It skips group names (lines ending with "/") and indented sub-entries.
+//
+// The output format from keepassxc-cli ls:
+//   - Root-level entries appear as plain lines, e.g. "MY_SECRET"
+//   - Group names end with "/", e.g. "Recycle Bin/"
+//   - Sub-entries under a group are indented with a leading space or tab
+//
+// This function skips blank lines, group names, and indented sub-entries.
+// It strips a trailing '\r' from each line for cross-platform robustness but
+// otherwise preserves the exact title — callers must not assume any further
+// normalisation. ValidateKey guarantees that no stored key has surrounding
+// whitespace, so no trimming is needed or performed here.
 func ParseListOutput(output string) []string {
 	var result []string
 
 	for _, line := range strings.Split(output, "\n") {
-		if strings.TrimSpace(line) == "" {
+		line = strings.TrimSuffix(line, "\r") // defend against CRLF on non-macOS hosts
+
+		if line == "" {
 			continue
 		}
 
-		if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
-			continue // sub-entry indented under a group
+		r, _ := utf8.DecodeRuneInString(line)
+		if unicode.IsSpace(r) {
+			continue // indented sub-entry under a group
 		}
 
 		if strings.HasSuffix(line, "/") {
 			continue // group name
 		}
 
-		result = append(result, strings.TrimSpace(line))
+		result = append(result, line)
 	}
 
 	return result

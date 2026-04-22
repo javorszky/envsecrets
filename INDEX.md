@@ -267,7 +267,7 @@ Wraps the `keepassxc-cli` tool to store and retrieve secrets from a KeePass data
 |------|-------------|
 | `ErrNotFound` | Returned when a KeePassXC entry does not exist (`keepassxc-cli` stderr contains "could not find entry"). |
 | `ErrUnavailable` | Returned when `keepassxc-cli` is not on `$PATH`. |
-| `ErrInvalidKey` | Returned when a key contains `"/"` or starts with whitespace — characters that cause KeePassXC to create nested groups, making entries invisible to `List`. |
+| `ErrInvalidKey` | Returned by `ValidateKey` when a key is empty, contains `"/"` (KeePassXC path separator), contains `"\n"` or `"\r"` (break the stdin protocol), or has leading/trailing Unicode whitespace (causes `List` round-trip mismatches). |
 
 ### `Client` struct
 
@@ -284,12 +284,12 @@ Wraps the `keepassxc-cli` tool to store and retrieve secrets from a KeePass data
 | `New(stem string) *Client` | Constructs a `Client`. `stem` is a bare name (e.g. `"envsecrets"`) that drives the database path, keychain service name, and access-details filename. |
 | `(c *Client) Available(_ context.Context) bool` | Returns `true` if `keepassxc-cli` is on `$PATH`. |
 | `(c *Client) EnsureVault(ctx context.Context) (bool, error)` | Creates the database if absent (`true, nil`); runs a `keepassxc-cli ls --quiet` probe to verify the stored password actually unlocks the existing DB (`false, nil`). Returns `ErrUnavailable` if `keepassxc-cli` is missing. |
-| `(c *Client) Get(ctx context.Context, key string) (string, error)` | Reads the Password field via `keepassxc-cli show --attributes Password`. Returns `ErrNotFound` on miss, `ErrInvalidKey` if key contains `"/"` or leading whitespace. |
-| `(c *Client) Set(ctx context.Context, key, value string) error` | edit-first (`keepassxc-cli edit --password-prompt`), then add on `ErrNotFound`. Returns `ErrInvalidKey` if key contains `"/"` or leading whitespace. |
-| `(c *Client) Delete(ctx context.Context, key string) error` | Removes the entry via `keepassxc-cli rm`. Returns `ErrNotFound` if absent, `ErrInvalidKey` if key contains `"/"` or leading whitespace. |
-| `(c *Client) List(ctx context.Context) ([]string, error)` | Returns root-level entry names via `keepassxc-cli ls` + `ParseListOutput`. |
-| `ValidateKey(key string) error` | Returns `ErrInvalidKey` if `key` is empty, contains `"/"`, or starts with whitespace (space or tab); returns `nil` otherwise. Called by `Get`/`Set`/`Delete`. Exported for testability and pre-validation by callers. |
-| `ParseListOutput(output string) []string` | Extracts root-level entry names from `keepassxc-cli ls` output. Skips group names (suffix `/`) and indented sub-entries. Exported for testability. |
+| `(c *Client) Get(ctx context.Context, key string) (string, error)` | Reads the Password field via `keepassxc-cli show --attributes Password`. Returns `ErrNotFound` on miss, `ErrInvalidKey` if key fails `ValidateKey`. |
+| `(c *Client) Set(ctx context.Context, key, value string) error` | edit-first (`keepassxc-cli edit --password-prompt`), then add on `ErrNotFound`. Returns `ErrInvalidKey` if key fails `ValidateKey`. |
+| `(c *Client) Delete(ctx context.Context, key string) error` | Removes the entry via `keepassxc-cli rm`. Returns `ErrNotFound` if absent, `ErrInvalidKey` if key fails `ValidateKey`. |
+| `(c *Client) List(ctx context.Context) ([]string, error)` | Returns root-level entry names via `keepassxc-cli ls` + `ParseListOutput`. Titles are preserved exactly as stored. |
+| `ValidateKey(key string) error` | Single enforcement point for key constraints. Rejects: empty, contains `"/"`, contains `"\n"` or `"\r"`, leading/trailing Unicode whitespace. Returns `ErrInvalidKey` on failure, `nil` on success. Called by `Get`/`Set`/`Delete`; exported for caller pre-validation. |
+| `ParseListOutput(output string) []string` | Extracts root-level entry names from `keepassxc-cli ls` output. Strips only a trailing `\r` per line (CRLF safety); skips blank lines, group names (suffix `/`), and lines with a leading Unicode whitespace rune (indented sub-entries). Titles are appended verbatim — no further normalisation. |
 
 ### Key unexported methods
 
@@ -300,6 +300,8 @@ Wraps the `keepassxc-cli` tool to store and retrieve secrets from a KeePass data
 | `(c *Client) createDB(ctx) error` | Generates a random password, creates the `.kdbx` file via `keepassxc-cli db-create --set-password`, stores the password in login keychain, writes access file. |
 | `(c *Client) readPassword(ctx) (string, error)` | Reads db password from login keychain (service `envsecrets-keepassxc-<stem>`). Falls back to access file on exit code 44 (item not found) and restores the keychain entry automatically. Other errors are returned immediately. |
 | `(c *Client) storePassword(ctx, password string) error` | Upserts (`-U`) the password into the login keychain under service `envsecrets-keepassxc-<stem>`. |
+| `firstRune(s string) rune` *(free function)* | Returns the first Unicode rune of a non-empty string; used by `ValidateKey`. |
+| `lastRune(s string) rune` *(free function)* | Returns the last Unicode rune of a non-empty string; used by `ValidateKey`. |
 | `classifyError(key string, out []byte) error` *(free function)* | Maps `keepassxc-cli` stderr to `ErrNotFound` or a generic error. |
 | `(c *Client) accessFilePath() string` | Returns `~/Documents/envsecrets-<stem>-keepassxc-access.txt`. |
 | `(c *Client) writeAccessFile(password string) error` | Writes a human-readable file (mode 0600) with db path, password, and GUI/CLI recovery instructions. |
