@@ -98,7 +98,7 @@ type Config struct {
 	Vault          string `cfg:"vault"           env:"ENVSECRETS_VAULT"           flag:"vault"           default:"envsecrets" scope:"global"  usage:"local keychain file name — secrets stored at ~/.local/share/envsecrets/<vault>.keychain"`
 	OpVault        string `cfg:"op_vault"        env:"ENVSECRETS_OP_VAULT"        flag:"op-vault"        default:"Envsecrets" scope:"global"  usage:"1Password vault name — created automatically on first write if it does not exist"`
 	DurableBackend string `cfg:"durable_backend" env:"ENVSECRETS_DURABLE_BACKEND" flag:"durable-backend" default:"1password"  scope:"global"  usage:"durable secret backend: \"1password\" or \"keepassxc\""`
-	KpxcDB         string `cfg:"kpxc_db"         env:"ENVSECRETS_KPXC_DB"         flag:"kpxc-db"         default:""           scope:"global"  usage:"KeePassXC database file path — defaults to ~/.local/share/envsecrets/<vault>.kdbx"`
+	KpxcDB         string `cfg:"kpxc_db"         env:"ENVSECRETS_KPXC_DB"         flag:"kpxc-db"         default:""           scope:"global"  usage:"KeePassXC database stem name — stored as ~/.local/share/envsecrets/<name>.kdbx (defaults to vault name)"`
 	Template       string `cfg:"template"        env:"ENVSECRETS_TEMPLATE"        flag:"template"        default:".env.tpl"   scope:"gen-env" usage:"gen-env template file path — may contain secret:KEY references"`
 	Output         string `cfg:"output"          env:"ENVSECRETS_OUTPUT"          flag:"output"          default:".env"       scope:"gen-env" usage:"gen-env output file path — add this file to .gitignore"`
 

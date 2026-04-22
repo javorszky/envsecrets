@@ -28,26 +28,22 @@ var ErrUnavailable = errors.New("keepassxc: keepassxc-cli unavailable")
 
 // Client holds configuration for KeePassXC operations.
 type Client struct {
-	vault  string // envsecrets vault name (used for password storage key and db path)
-	dbPath string // path to the .kdbx database file
+	vault  string // envsecrets vault name (used for the keychain service key)
+	dbPath string // absolute path to the .kdbx file, always under ~/.local/share/envsecrets/
 }
 
-// DefaultDBPath returns the default KeePassXC database path for the given vault:
-// ~/.local/share/envsecrets/<vault>.kdbx
-func DefaultDBPath(vault string) string {
+// DefaultDBPath returns the KeePassXC database path for the given stem name:
+// ~/.local/share/envsecrets/<stem>.kdbx
+func DefaultDBPath(stem string) string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "share", "envsecrets", vault+".kdbx")
+	return filepath.Join(home, ".local", "share", "envsecrets", stem+".kdbx")
 }
 
-// New returns a Client for the given vault. If dbPath is empty it defaults to
-// ~/.local/share/envsecrets/<vault>.kdbx (same directory as keychain files);
-// otherwise the provided dbPath is used as-is.
-func New(vault, dbPath string) *Client {
-	if dbPath == "" {
-		dbPath = DefaultDBPath(vault)
-	}
-
-	return &Client{vault: vault, dbPath: dbPath}
+// New returns a Client for the given vault and database stem name.
+// The stem is a bare name (e.g. "envsecrets") — the database is always
+// stored at ~/.local/share/envsecrets/<stem>.kdbx.
+func New(vault, stem string) *Client {
+	return &Client{vault: vault, dbPath: DefaultDBPath(stem)}
 }
 
 // Available reports whether keepassxc-cli is present in PATH.
