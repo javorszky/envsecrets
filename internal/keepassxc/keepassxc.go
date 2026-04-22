@@ -364,7 +364,17 @@ func (c *Client) readPassword(ctx context.Context) (string, error) {
 	// not found (exit code 44). Any other error — context cancelled, binary
 	// missing, permission denied, keychain locked — is returned directly.
 	exitErr, ok := errors.AsType[*exec.ExitError](err)
-	if !ok || exitErr.ExitCode() != 44 {
+	if !ok {
+		return "", fmt.Errorf("reading password for %q from login keychain: %w", svc, err)
+	}
+
+	if exitErr.ExitCode() != 44 {
+		// Include security's stderr so callers see the real diagnostic
+		// (e.g. "errSecInteractionNotAllowed") rather than just "exit status N".
+		if msg := strings.TrimSpace(string(exitErr.Stderr)); msg != "" {
+			return "", fmt.Errorf("reading password for %q from login keychain: %w\n%s", svc, err, msg)
+		}
+
 		return "", fmt.Errorf("reading password for %q from login keychain: %w", svc, err)
 	}
 
