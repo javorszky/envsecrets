@@ -346,7 +346,7 @@ func (c *Client) readKeychainPassword(ctx context.Context) (string, error) {
 
 	out, err := cmd.Output()
 	if err == nil {
-		return strings.TrimSuffix(string(out), "\n"), nil
+		return ParsePasswordOutput(out), nil
 	}
 
 	// Only fall back to the access-details file when security reports that the

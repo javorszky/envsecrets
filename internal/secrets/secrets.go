@@ -61,6 +61,8 @@ func New(keychainVault, opVault, durableBackend, kpxcDB string) *Manager {
 
 	backend := strings.ToLower(strings.TrimSpace(durableBackend))
 
+	unrecognized := false
+
 	switch backend {
 	case "keepassxc":
 		durable = keepassxc.New(keychainVault, kpxcDB)
@@ -69,17 +71,25 @@ func New(keychainVault, opVault, durableBackend, kpxcDB string) *Manager {
 		durable = onepassword.New(opVault)
 		durableName = "1Password"
 	default:
-		fmt.Fprintf(os.Stderr, "warning: unrecognized durable backend %q; falling back to \"1password\"\n", durableBackend)
+		unrecognized = true
 		durable = onepassword.New(opVault)
 		durableName = "1Password"
 	}
 
-	return &Manager{
+	m := &Manager{
 		kc:          keychain.New(keychainVault),
 		durable:     durable,
 		durableName: durableName,
 		warn:        os.Stderr,
 	}
+
+	if unrecognized {
+		// Route through m.warn so callers who redirect warnings via WithWarningWriter
+		// capture this message too, rather than it always going to os.Stderr.
+		fmt.Fprintf(m.warn, "warning: unrecognized durable backend %q; falling back to \"1password\"\n", durableBackend)
+	}
+
+	return m
 }
 
 // NewWithBackends returns a Manager using the provided backend implementations.
