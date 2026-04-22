@@ -69,10 +69,4 @@ func initConfig() {
 		}
 	}
 
-	// Resolve computed defaults that depend on other config values.
-	// kpxc_db is a stem name like vault; default to the vault name so that
-	// config show displays the effective stem rather than an empty string.
-	if cfg.KpxcDB == "" {
-		cfg.KpxcDB = cfg.Vault
-	}
 }

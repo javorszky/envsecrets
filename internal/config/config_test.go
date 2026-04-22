@@ -383,7 +383,7 @@ func TestAllFields(t *testing.T) {
 	kpxcDB := fields[3]
 	assert.Equal(t, "ENVSECRETS_KPXC_DB", kpxcDB.EnvVar)
 	assert.Equal(t, "kpxc-db", kpxcDB.Flag)
-	assert.Equal(t, "", kpxcDB.Default)
+	assert.Equal(t, "envsecrets", kpxcDB.Default)
 	assert.Equal(t, "global", kpxcDB.Scope)
 	assert.NotEmpty(t, kpxcDB.Usage)
 
