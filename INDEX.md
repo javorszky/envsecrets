@@ -59,7 +59,7 @@ Calls `config.Load(configFile)`, then iterates `config.AllFields()` and calls `c
 | File | Command | Flags | Description |
 |------|---------|-------|-------------|
 | `config.go` | `config` | — | Parent command; groups config subcommands |
-| `config_init.go` | `config init` | — | Writes `~/.config/envsecrets.toml` from `config.GenerateConfigTemplate()`. Errors if file already exists. |
+| `config_init.go` | `config init` | — | Writes `~/.config/envsecrets.toml` from `config.GenerateConfigTemplate()`, then prints a tip about the default `op_vault`. Errors if file already exists. |
 | `config_show.go` | `config show` | `--verbose` / `-v` | Prints an emoji-grid table (compact default) or per-source blocks (`--verbose` / `-v`). OPTION column width is computed dynamically from the longest key name. Verbose mode: one block per setting, each source shows ✅ + value or 🚫 + `(not set)`, with `⬆️ superseded by …` on losing sources and `🏆 ← active` on the winner. Unexported helpers: `srcRow` (type), `verboseOutput()`, `supersededBy()`, `displayWidth()`, `padRight()`, `boolEmoji()`, `sourceCell()`. |
 | `store.go` | `store <key> <value>` | — | Writes a secret via `Manager.Set()` to Keychain and the configured durable store. |
 | `fetch.go` | `fetch <key>` | — | Reads a secret via `Manager.Get()`. Prints raw value to stdout (no newline). |
