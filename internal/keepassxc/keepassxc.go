@@ -53,8 +53,11 @@ func (c *Client) Available(_ context.Context) bool {
 }
 
 // EnsureVault creates the KeePassXC database if it does not exist, or verifies
-// the stored password is readable if it does. Returns (true, nil) when newly
-// created, (false, nil) when it already existed, or (false, err) on failure.
+// that the stored password actually unlocks it if it does. The verification
+// runs a cheap `keepassxc-cli ls --quiet` probe: if the database is corrupted
+// or its password was changed externally the command will fail and an error is
+// returned. Returns (true, nil) when newly created, (false, nil) when it
+// already existed and can be opened, or (false, err) on failure.
 func (c *Client) EnsureVault(ctx context.Context) (bool, error) {
 	_, err := os.Stat(c.dbPath)
 	if err != nil {
@@ -87,6 +90,10 @@ func (c *Client) EnsureVault(ctx context.Context) (bool, error) {
 	probe.Stdin = strings.NewReader(pw + "\n")
 
 	if out, err := probe.CombinedOutput(); err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return false, ErrUnavailable
+		}
+
 		return false, fmt.Errorf("keepassxc: cannot open database %q (wrong password or corrupted file): %w\n%s", c.dbPath, err, out)
 	}
 
@@ -119,7 +126,7 @@ func (c *Client) Get(ctx context.Context, key string) (string, error) {
 		return "", unavailableOrWrap(fmt.Sprintf("get %q", key), err)
 	}
 
-	return decodeValue(strings.TrimRight(string(out), "\n")), nil
+	return decodeValue(strings.TrimSuffix(string(out), "\n")), nil
 }
 
 // Set stores or updates the entry. It attempts an edit first; if the entry does
@@ -330,11 +337,14 @@ func (c *Client) createDB(ctx context.Context) error {
 
 // readPassword retrieves the database password from the macOS login keychain
 // under service "envsecrets-keepassxc-<vault>". Falls back to the access-details
-// file in ~/Documents and restores the keychain entry if the item is not found.
+// file in ~/Documents and restores the keychain entry if the item is genuinely
+// not found (exit code 44).
 //
-// The fallback is only attempted when `security` exits with a non-zero status
-// (item not found). Other errors — context cancellation, binary not in PATH,
-// permission failures — are returned immediately so they are not masked.
+// The fallback is only attempted when `security` exits with code 44 ("The
+// specified item could not be found in the keychain"). Any other failure —
+// context cancellation, binary not in PATH, permission denied, keychain
+// locked — is returned immediately so callers see the real cause rather than
+// a confusing access-file error.
 func (c *Client) readPassword(ctx context.Context) (string, error) {
 	svc := "envsecrets-keepassxc-" + c.vault
 
@@ -347,13 +357,14 @@ func (c *Client) readPassword(ctx context.Context) (string, error) {
 
 	out, err := cmd.Output()
 	if err == nil {
-		return strings.TrimRight(string(out), "\n"), nil
+		return strings.TrimSuffix(string(out), "\n"), nil
 	}
 
-	// Only fall back to the access file when security exited non-zero (item not
-	// found). Any other failure — context cancelled, binary missing, permission
-	// denied — is returned directly so callers see the real cause.
-	if _, ok := errors.AsType[*exec.ExitError](err); !ok {
+	// Only fall back to the access file when security reports that the item was
+	// not found (exit code 44). Any other error — context cancelled, binary
+	// missing, permission denied, keychain locked — is returned directly.
+	exitErr, ok := errors.AsType[*exec.ExitError](err)
+	if !ok || exitErr.ExitCode() != 44 {
 		return "", fmt.Errorf("reading password for %q from login keychain: %w", svc, err)
 	}
 

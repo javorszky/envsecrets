@@ -316,10 +316,14 @@ func (c *Client) storeKeychainPassword(ctx context.Context, password string) err
 //
 // Primary source: the login keychain (service "envsecrets-keychain-<vault>").
 //
-// Fallback: if that entry is missing (e.g. after a machine migration or a
-// keychain reset), the access-details file written to ~/Documents at creation
-// time is read instead.  The entry is then restored in the login keychain so
-// subsequent calls are fast again.
+// Fallback: if that entry is not found (security exits with code 44, e.g.
+// after a machine migration or a keychain reset), the access-details file
+// written to ~/Documents at creation time is read instead. The entry is then
+// restored in the login keychain so subsequent calls are fast again.
+//
+// Any other failure — context cancellation, binary not in PATH, permission
+// denied, keychain locked — is returned immediately so callers see the real
+// cause rather than a confusing access-file error.
 func (c *Client) readKeychainPassword(ctx context.Context) (string, error) {
 	svc := "envsecrets-keychain-" + c.vault
 
@@ -333,10 +337,18 @@ func (c *Client) readKeychainPassword(ctx context.Context) (string, error) {
 
 	out, err := cmd.Output()
 	if err == nil {
-		return strings.TrimRight(string(out), "\n"), nil
+		return strings.TrimSuffix(string(out), "\n"), nil
 	}
 
-	// Login-keychain entry missing — try the access-details file.
+	// Only fall back to the access-details file when security reports that the
+	// item was not found (exit code 44). Any other error — context cancelled,
+	// binary missing, permission denied, keychain locked — is returned directly.
+	exitErr, ok := errors.AsType[*exec.ExitError](err)
+	if !ok || exitErr.ExitCode() != 44 {
+		return "", fmt.Errorf("reading password for %q from login keychain: %w", svc, err)
+	}
+
+	// Login-keychain item not found — try the access-details file.
 	password, fileErr := c.readAccessFile()
 	if fileErr != nil {
 		return "", fmt.Errorf(
