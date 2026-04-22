@@ -84,8 +84,8 @@ func New(keychainVault, opVault, durableBackend, kpxcDB string) *Manager {
 	}
 
 	if unrecognized {
-		// Route through m.warn so callers who redirect warnings via WithWarningWriter
-		// capture this message too, rather than it always going to os.Stderr.
+		// This warning is emitted during New(), before any caller can reconfigure
+		// the warning writer via WithWarningWriter, so it always goes to os.Stderr.
 		fmt.Fprintf(m.warn, "warning: unrecognized durable backend %q; falling back to \"1password\"\n", durableBackend)
 	}
 
