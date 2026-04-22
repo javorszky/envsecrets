@@ -213,17 +213,28 @@ func (m *Manager) Delete(ctx context.Context, key string) error {
 
 // Sync pulls every item from the durable store and writes it into Keychain.
 // This is the bootstrap command you run on a new machine.
+//
+// Sync only auto-creates the durable vault for backends where the vault is a
+// local artifact that may legitimately be missing on a new machine — currently
+// just KeePassXC (the .kdbx file). For remote-backed durable stores such as
+// 1Password, Sync does NOT call EnsureVault: auto-creating a remote vault on a
+// mistyped name would silently succeed with zero items, masking the
+// misconfiguration. Those backends must have their vault already set up.
 func (m *Manager) Sync(ctx context.Context) (synced int, err error) {
 	if !m.durable.Available(ctx) {
 		return 0, fmt.Errorf("%s is unavailable; cannot sync", m.durableName)
 	}
 
-	// Ensure the durable vault exists before listing; for KeePassXC this
-	// creates the .kdbx file on the first sync on a new machine.
-	if created, ensureErr := m.durable.EnsureVault(ctx); ensureErr != nil {
-		return 0, fmt.Errorf("could not ensure %s vault: %w", m.durableName, ensureErr)
-	} else if created {
-		fmt.Fprintf(m.warn, "info: %s vault created\n", m.durableName)
+	// Only pre-create the durable vault when it is local (KeePassXC). The
+	// type assertion intentionally avoids a broader "autoCreateOnSync" flag on
+	// the Manager — the policy is entirely about the backend's nature, not
+	// about Manager state, so we key it off the concrete backend type.
+	if _, isKPXC := m.durable.(*keepassxc.Client); isKPXC {
+		if created, ensureErr := m.durable.EnsureVault(ctx); ensureErr != nil {
+			return 0, fmt.Errorf("could not ensure %s vault: %w", m.durableName, ensureErr)
+		} else if created {
+			fmt.Fprintf(m.warn, "info: %s vault created\n", m.durableName)
+		}
 	}
 
 	keys, err := m.durable.List(ctx)

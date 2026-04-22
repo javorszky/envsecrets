@@ -122,7 +122,8 @@ func (c *Client) EnsureVault(ctx context.Context) (bool, error) {
 }
 
 // Get retrieves the Password field of the entry whose title matches key.
-// Returns ErrInvalidKey if the key contains "/" or starts with whitespace.
+// Returns ErrInvalidKey if key fails ValidateKey (empty, contains '/', '\n',
+// or '\r', or has leading/trailing Unicode whitespace).
 func (c *Client) Get(ctx context.Context, key string) (string, error) {
 	if err := ValidateKey(key); err != nil {
 		return "", err
@@ -163,7 +164,8 @@ func (c *Client) Get(ctx context.Context, key string) (string, error) {
 // being written to the database and decoded transparently on Get, so the value
 // round-trips exactly.
 //
-// Returns ErrInvalidKey if the key contains "/" or starts with whitespace.
+// Returns ErrInvalidKey if key fails ValidateKey (empty, contains '/', '\n',
+// or '\r', or has leading/trailing Unicode whitespace).
 func (c *Client) Set(ctx context.Context, key, value string) error {
 	if err := ValidateKey(key); err != nil {
 		return err
@@ -182,7 +184,8 @@ func (c *Client) Set(ctx context.Context, key, value string) error {
 }
 
 // Delete removes the entry whose title matches key.
-// Returns ErrInvalidKey if the key contains "/" or starts with whitespace.
+// Returns ErrInvalidKey if key fails ValidateKey (empty, contains '/', '\n',
+// or '\r', or has leading/trailing Unicode whitespace).
 func (c *Client) Delete(ctx context.Context, key string) error {
 	if err := ValidateKey(key); err != nil {
 		return err

@@ -526,6 +526,7 @@ func TestManager_Sync(t *testing.T) {
 		opListErr       error
 		opGetErr        error
 		kcSetErr        error
+		opEnsureErr     error // if non-nil, stub's EnsureVault returns this
 		wantSynced      int
 		wantErr         bool
 		wantErrContains string
@@ -574,6 +575,18 @@ func TestManager_Sync(t *testing.T) {
 			wantSynced:  0,
 			wantWarning: `could not write "K1" to keychain`,
 		},
+		{
+			// Non-keepassxc backends must NOT be auto-created on sync, so a
+			// failing EnsureVault on the stub must never be reached. If the
+			// gating regresses and Sync calls EnsureVault on a non-keepassxc
+			// durable, this case will surface the error.
+			name:        "non-keepassxc durable is NOT auto-created on sync",
+			opAvail:     true,
+			opData:      map[string]string{"K1": "v1"},
+			opEnsureErr: errors.New("EnsureVault must not be called"),
+			wantSynced:  1,
+			wantKCKeys:  []string{"K1"},
+		},
 	}
 
 	for _, tc := range tests {
@@ -586,6 +599,7 @@ func TestManager_Sync(t *testing.T) {
 			op := newStubStore(tc.opAvail, onepassword.ErrNotFound, tc.opData)
 			op.listErr = tc.opListErr
 			op.getErr = tc.opGetErr
+			op.vaultEnsureErr = tc.opEnsureErr
 
 			mgr, warnBuf := newMgr(kc, op)
 

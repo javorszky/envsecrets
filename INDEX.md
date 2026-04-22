@@ -349,7 +349,7 @@ Governs the combined read/write/delete/sync logic across the two `SecretStore` b
 | `(m *Manager) Get(ctx context.Context, key string) (string, error)` | Keychain first. On miss, tries the durable store (if available) and caches the result back into Keychain. |
 | `(m *Manager) Set(ctx context.Context, key, value string) error` | Calls `kc.EnsureVault` (fatal on error), writes to Keychain (fatal on error), then calls `durable.EnsureVault` + `durable.Set` (both non-fatal; warnings only). |
 | `(m *Manager) Delete(ctx context.Context, key string) error` | Attempts both backends; collects errors via `errors.Join`; `ErrNotFound` on either side is silently ignored. |
-| `(m *Manager) Sync(ctx context.Context) (synced int, err error)` | Calls `durable.EnsureVault` first (creates the DB/vault if absent), then lists all keys, fetches each, writes to Keychain. Returns count of successfully written keys. |
+| `(m *Manager) Sync(ctx context.Context) (synced int, err error)` | Lists all keys in the durable store, fetches each, writes to Keychain. Returns count of successfully written keys. For KeePassXC only, calls `durable.EnsureVault` first so the `.kdbx` file can be created on a fresh machine; for remote-backed backends (1Password) Sync does NOT auto-create — a mistyped vault name must surface as a listing error rather than silently create an empty vault. |
 
 ### Key unexported functions
 
