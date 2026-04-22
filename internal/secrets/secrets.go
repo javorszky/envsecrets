@@ -54,7 +54,7 @@ type Manager struct {
 //   - keychainVault:  name for the keychain file (~/.local/share/envsecrets/<name>.keychain)
 //   - opVault:        1Password vault name (used when durableBackend == "1password")
 //   - durableBackend: "1password" (default) or "keepassxc"
-//   - kpxcDB:         KeePassXC database path; empty uses the default path based on keychainVault
+//   - kpxcDB:         KeePassXC database stem name (e.g. "envsecrets"); used when durableBackend == "keepassxc"
 func New(keychainVault, opVault, durableBackend, kpxcDB string) *Manager {
 	var durable SecretStore
 	var durableName string
@@ -84,12 +84,14 @@ func New(keychainVault, opVault, durableBackend, kpxcDB string) *Manager {
 
 // NewWithBackends returns a Manager using the provided backend implementations.
 // Intended for tests: pass mock or stub implementations of SecretStore
-// to exercise the Manager's logic in isolation.
-func NewWithBackends(kc, durable SecretStore) *Manager {
+// to exercise the Manager's logic in isolation. durableName is the display
+// name used in warning and error messages (e.g. "1Password", "KeePassXC",
+// or any label appropriate for the stub).
+func NewWithBackends(kc, durable SecretStore, durableName string) *Manager {
 	return &Manager{
 		kc:          kc,
 		durable:     durable,
-		durableName: "1Password",
+		durableName: durableName,
 		warn:        os.Stderr,
 	}
 }

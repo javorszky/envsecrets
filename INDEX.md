@@ -340,7 +340,7 @@ Governs the combined read/write/delete/sync logic across the two `SecretStore` b
 | Signature | Description |
 |-----------|-------------|
 | `New(keychainVault, opVault, durableBackend, kpxcDB string) *Manager` | Constructs a Manager. `durableBackend` selects `"keepassxc"` → `keepassxc.New(keychainVault, kpxcDB)` or `""` / `"1password"` → `onepassword.New(opVault)`; unrecognised values fall back to 1Password with a stderr warning. |
-| `NewWithBackends(kc, durable SecretStore) *Manager` | Accepts arbitrary `SecretStore` implementations; used in tests with `stubStore`. Sets `durableName = "1Password"`. |
+| `NewWithBackends(kc, durable SecretStore, durableName string) *Manager` | Accepts arbitrary `SecretStore` implementations and an explicit display name for the durable backend; used in tests with `stubStore`. |
 | `(m *Manager) WithWarningWriter(w io.Writer) *Manager` | Overrides the warning writer; returns `m` for chaining. |
 | `(m *Manager) Get(ctx context.Context, key string) (string, error)` | Keychain first. On miss, tries the durable store (if available) and caches the result back into Keychain. |
 | `(m *Manager) Set(ctx context.Context, key, value string) error` | Calls `kc.EnsureVault` (fatal on error), writes to Keychain (fatal on error), then calls `durable.EnsureVault` + `durable.Set` (both non-fatal; warnings only). |
