@@ -4,7 +4,8 @@
 // The entry title is the key name; the secret is stored in the Password field.
 //
 // The database password is stored in the macOS login keychain under service
-// "envsecrets-keepassxc-<vault>", mirroring the keychain backend's approach.
+// "envsecrets-keepassxc-<stem>" (where stem is the kpxc_db config value),
+// mirroring the keychain backend's approach.
 package keepassxc
 
 import (
@@ -34,7 +35,7 @@ type Client struct {
 	// access-details file in ~/Documents. Keying everything off the same stem
 	// ensures the password stored in the keychain always matches the database.
 	stem   string
-	dbPath string // absolute path to the .kdbx file (see DefaultDBPath)
+	dbPath string // path to the .kdbx file (see DefaultDBPath; may be relative if home dir is unresolvable)
 }
 
 // DefaultDBPath returns the KeePassXC database path for the given stem name.
@@ -348,7 +349,7 @@ func (c *Client) createDB(ctx context.Context) error {
 }
 
 // readPassword retrieves the database password from the macOS login keychain
-// under service "envsecrets-keepassxc-<vault>". Falls back to the access-details
+// under service "envsecrets-keepassxc-<stem>". Falls back to the access-details
 // file in ~/Documents and restores the keychain entry if the item is genuinely
 // not found (exit code 44).
 //
@@ -406,7 +407,7 @@ func (c *Client) readPassword(ctx context.Context) (string, error) {
 }
 
 // storePassword saves the database password in the macOS login keychain under
-// service "envsecrets-keepassxc-<vault>". The -U flag acts as an upsert.
+// service "envsecrets-keepassxc-<stem>". The -U flag acts as an upsert.
 func (c *Client) storePassword(ctx context.Context, password string) error {
 	svc := "envsecrets-keepassxc-" + c.stem
 
