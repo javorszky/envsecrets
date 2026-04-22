@@ -28,7 +28,12 @@ var ErrUnavailable = errors.New("keepassxc: keepassxc-cli unavailable")
 
 // Client holds configuration for KeePassXC operations.
 type Client struct {
-	vault  string // envsecrets vault name (used for the keychain service key)
+	// stem is the database stem name (e.g. "envsecrets"). It is used as the
+	// identifier for all three related artifacts: the .kdbx file path (via
+	// DefaultDBPath), the macOS login-keychain service name, and the
+	// access-details file in ~/Documents. Keying everything off the same stem
+	// ensures the password stored in the keychain always matches the database.
+	stem   string
 	dbPath string // absolute path to the .kdbx file (see DefaultDBPath)
 }
 
@@ -45,11 +50,12 @@ func DefaultDBPath(stem string) string {
 	return filepath.Join(home, ".local", "share", "envsecrets", stem+".kdbx")
 }
 
-// New returns a Client for the given vault and database stem name.
-// The stem is a bare name (e.g. "envsecrets") — the database path is
-// determined by DefaultDBPath.
-func New(vault, stem string) *Client {
-	return &Client{vault: vault, dbPath: DefaultDBPath(stem)}
+// New returns a Client for the given database stem name.
+// The stem is a bare name (e.g. "envsecrets") — it determines the database
+// path (via DefaultDBPath), the login-keychain service name, and the
+// access-details filename, ensuring all three always stay in sync.
+func New(stem string) *Client {
+	return &Client{stem: stem, dbPath: DefaultDBPath(stem)}
 }
 
 // Available reports whether keepassxc-cli is present in PATH.
@@ -352,7 +358,7 @@ func (c *Client) createDB(ctx context.Context) error {
 // locked — is returned immediately so callers see the real cause rather than
 // a confusing access-file error.
 func (c *Client) readPassword(ctx context.Context) (string, error) {
-	svc := "envsecrets-keepassxc-" + c.vault
+	svc := "envsecrets-keepassxc-" + c.stem
 
 	cmd := exec.CommandContext(ctx,
 		"security", "find-generic-password",
@@ -402,7 +408,7 @@ func (c *Client) readPassword(ctx context.Context) (string, error) {
 // storePassword saves the database password in the macOS login keychain under
 // service "envsecrets-keepassxc-<vault>". The -U flag acts as an upsert.
 func (c *Client) storePassword(ctx context.Context, password string) error {
-	svc := "envsecrets-keepassxc-" + c.vault
+	svc := "envsecrets-keepassxc-" + c.stem
 
 	cmd := exec.CommandContext(ctx,
 		"security", "add-generic-password",
@@ -483,7 +489,7 @@ func (c *Client) accessFilePath() string {
 		home = os.Getenv("HOME")
 	}
 
-	return filepath.Join(home, "Documents", "envsecrets-"+c.vault+"-keepassxc-access.txt")
+	return filepath.Join(home, "Documents", "envsecrets-"+c.stem+"-keepassxc-access.txt")
 }
 
 func (c *Client) writeAccessFile(password string) error {
@@ -493,7 +499,7 @@ func (c *Client) writeAccessFile(password string) error {
 ====================================
 Created: %s
 
-Vault name    : %s
+Database stem : %s
 Database file : %s
 
 KEEP THIS FILE SAFE — it contains the password to your KeePassXC database.
@@ -506,14 +512,14 @@ To open the database in KeePassXC (GUI):
   4. Enter the password shown below when prompted
 
 # --- do not edit below this line ---
-vault: %s
+stem: %s
 db-path: %s
 password: %s
 `,
 		time.Now().Format("2006-01-02"),
-		c.vault,
+		c.stem,
 		c.dbPath,
-		c.vault,
+		c.stem,
 		c.dbPath,
 		password,
 	)

@@ -65,7 +65,7 @@ func New(keychainVault, opVault, durableBackend, kpxcDB string) *Manager {
 
 	switch backend {
 	case "keepassxc":
-		durable = keepassxc.New(keychainVault, kpxcDB)
+		durable = keepassxc.New(kpxcDB)
 		durableName = "KeePassXC"
 	case "", "1password":
 		durable = onepassword.New(opVault)
