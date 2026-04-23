@@ -325,8 +325,8 @@ Secrets are stored exclusively as Keeper `login` records (title = key, password 
 |------|--------------|
 | `ErrNotFound` | Returned by `Get`, `Delete` when no record with that title exists. Alias for `storeerr.ErrNotFound`. |
 | `ErrUnavailable` | Returned by `loadManager` when the config file cannot be loaded (absent or corrupt). Wraps the error from `loadManager`. |
-| `ErrDuplicateTitles` | Returned by `lookupOne` when `GetSecretsByTitle` returns more than one result. Keeper does not enforce title uniqueness; the user must resolve duplicates in the web console. NOT caught by `isDurableNotFound`. |
-| `ErrWrongType` | Returned by `lookupOne` when the matching record's type is not `"login"`. NOT caught by `isDurableNotFound`. |
+| `ErrDuplicateTitles` | Returned by `lookupOne` when `GetSecretsByTitle` returns more than one result. Keeper does not enforce title uniqueness; the user must resolve duplicates in the web console. Does NOT match `errors.Is(err, storeerr.ErrNotFound)` — it is a real error that must surface to the caller. |
+| `ErrWrongType` | Returned by `lookupOne` when the matching record's type is not `"login"`. Does NOT match `errors.Is(err, storeerr.ErrNotFound)` — it is a real error that must surface to the caller. |
 
 ### `Client` struct
 
