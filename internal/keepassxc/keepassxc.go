@@ -10,8 +10,6 @@ package keepassxc
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -22,6 +20,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/javorszky/envsecrets/internal/loginkc"
 	"github.com/javorszky/envsecrets/internal/storeerr"
 )
 
@@ -383,7 +382,7 @@ func (c *Client) edit(ctx context.Context, key, value string) error {
 }
 
 func (c *Client) createDB(ctx context.Context) error {
-	pw, err := generatePassword()
+	pw, err := loginkc.GeneratePassword()
 	if err != nil {
 		return fmt.Errorf("generating database password: %w", err)
 	}
@@ -427,82 +426,16 @@ func (c *Client) createDB(ctx context.Context) error {
 	return nil
 }
 
-// readPassword retrieves the database password from the macOS login keychain
-// under service "envsecrets-keepassxc-<stem>". Falls back to the access-details
-// file in ~/Documents and restores the keychain entry if the item is genuinely
-// not found (exit code 44).
-//
-// The fallback is only attempted when `security` exits with code 44 ("The
-// specified item could not be found in the keychain"). Any other failure —
-// context cancellation, binary not in PATH, permission denied, keychain
-// locked — is returned immediately so callers see the real cause rather than
-// a confusing access-file error.
+// readPassword retrieves the database password from the macOS login keychain,
+// falling back to the access-details file on exit code 44.
 func (c *Client) readPassword(ctx context.Context) (string, error) {
-	svc := "envsecrets-keepassxc-" + c.stem
-
-	cmd := exec.CommandContext(ctx,
-		"security", "find-generic-password",
-		"-a", currentUser(),
-		"-s", svc,
-		"-w",
-	)
-
-	out, err := cmd.Output()
-	if err == nil {
-		return strings.TrimSuffix(string(out), "\n"), nil
-	}
-
-	// Only fall back to the access file when security reports that the item was
-	// not found (exit code 44). Any other error — context cancelled, binary
-	// missing, permission denied, keychain locked — is returned directly.
-	exitErr, ok := errors.AsType[*exec.ExitError](err)
-	if !ok {
-		return "", fmt.Errorf("reading password for %q from login keychain: %w", svc, err)
-	}
-
-	if exitErr.ExitCode() != 44 {
-		// Include security's stderr so callers see the real diagnostic
-		// (e.g. "errSecInteractionNotAllowed") rather than just "exit status N".
-		if msg := strings.TrimSpace(string(exitErr.Stderr)); msg != "" {
-			return "", fmt.Errorf("reading password for %q from login keychain: %w\n%s", svc, err, msg)
-		}
-
-		return "", fmt.Errorf("reading password for %q from login keychain: %w", svc, err)
-	}
-
-	// Login-keychain item not found — fall back to the access-details file.
-	pw, fileErr := c.readAccessFile()
-	if fileErr != nil {
-		return "", fmt.Errorf(
-			"reading password for %q from login keychain (%w) and from access file (%v)",
-			svc, err, fileErr,
-		)
-	}
-
-	// Restore the login-keychain entry so next time is seamless.
-	_ = c.storePassword(ctx, pw)
-
-	return pw, nil
+	return loginkc.ReadWithFallback(ctx, "envsecrets-keepassxc-"+c.stem, c.readAccessFile)
 }
 
 // storePassword saves the database password in the macOS login keychain under
-// service "envsecrets-keepassxc-<stem>". The -U flag acts as an upsert.
+// service "envsecrets-keepassxc-<stem>".
 func (c *Client) storePassword(ctx context.Context, password string) error {
-	svc := "envsecrets-keepassxc-" + c.stem
-
-	cmd := exec.CommandContext(ctx,
-		"security", "add-generic-password",
-		"-U",
-		"-a", currentUser(),
-		"-s", svc,
-		"-w", password,
-	)
-
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("storing password for %q: %w\n%s", svc, err, out)
-	}
-
-	return nil
+	return loginkc.Store(ctx, "envsecrets-keepassxc-"+c.stem, password)
 }
 
 // encodeValue percent-encodes characters that act as delimiters in the
@@ -633,21 +566,3 @@ func (c *Client) readAccessFile() (string, error) {
 }
 
 // --- small helpers -------------------------------------------------------------
-
-func generatePassword() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-
-	return hex.EncodeToString(b), nil
-}
-
-func currentUser() string {
-	u := os.Getenv("USER")
-	if u == "" {
-		u = os.Getenv("LOGNAME")
-	}
-
-	return u
-}

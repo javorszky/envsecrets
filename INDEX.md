@@ -163,6 +163,21 @@ Governs all resolved runtime configuration. The eight configurable fields carry 
 
 ---
 
+## `internal/loginkc/` — Login Keychain Helper
+
+Shared helper used by `internal/keychain` and `internal/keepassxc` to store and retrieve backend vault passwords from the macOS login keychain, avoiding duplication of the store/read/fallback pattern.
+
+### Exported functions
+
+| Signature | Description |
+|-----------|-------------|
+| `Store(ctx context.Context, service, password string) error` | Upserts a password into the macOS login keychain under `service`. Uses `add-generic-password -U` so a stale entry never causes a "duplicate item" failure. |
+| `ReadWithFallback(ctx context.Context, service string, fallback func() (string, error)) (string, error)` | Reads a password from the login keychain. On exit code 44 ("item not found") calls `fallback` (e.g. an access-file reader), then restores the login-keychain entry. Any other error is returned immediately. |
+| `GeneratePassword() (string, error)` | Returns a 64-character hex string from 32 cryptographically random bytes. Replaces the identical unexported helpers that were duplicated in `keychain` and `keepassxc`. |
+| `CurrentUser() string` | Returns `$USER`, falling back to `$LOGNAME`. Replaces the identical unexported helpers that were duplicated in `keychain` and `keepassxc`. |
+
+---
+
 ## `internal/keychain/` — macOS Keychain Backend
 
 Each vault gets a dedicated keychain file at `~/.local/share/envsecrets/<vault>.keychain`. The file's password is auto-generated on first use and stored in the login keychain under service `envsecrets-keychain-<vault>`, and also written to a human-readable access-details file at `~/Documents/envsecrets-<vault>-keychain-access.txt`.
@@ -202,14 +217,12 @@ Governs all operations against a single named keychain file.
 | `(c *Client) ensure(ctx context.Context) error` | Creates or unlocks the keychain file. Called at the top of every public method that accesses the file. |
 | `(c *Client) createKeychainFile(ctx context.Context) error` | Generates a random password, creates the keychain file (`security create-keychain`), disables auto-lock, stores the password in the login keychain, and writes the access-details file. |
 | `(c *Client) unlockKeychainFile(ctx context.Context) error` | Reads the password via `readKeychainPassword` and calls `security unlock-keychain`. |
-| `(c *Client) readKeychainPassword(ctx context.Context) (string, error)` | Primary: reads from the login keychain. Fallback: reads from the access file and restores the login-keychain entry automatically. |
-| `(c *Client) storeKeychainPassword(ctx context.Context, password string) error` | Upserts (`-U`) the password into the login keychain under service `envsecrets-keychain-<vault>`. |
+| `(c *Client) readKeychainPassword(ctx context.Context) (string, error)` | Delegates to `loginkc.ReadWithFallback` with service `envsecrets-keychain-<vault>` and `c.readAccessFile` as the fallback. |
+| `(c *Client) storeKeychainPassword(ctx context.Context, password string) error` | Delegates to `loginkc.Store` with service `envsecrets-keychain-<vault>`. |
 | `(c *Client) accessFilePath() string` | Returns `~/Documents/envsecrets-<vault>-keychain-access.txt`. |
 | `(c *Client) writeAccessFile(password string) error` | Writes a human-readable file (mode 0600) containing the keychain path, password, and Keychain Access / terminal recovery instructions. Prints the path to stderr. |
 | `(c *Client) readAccessFile() (string, error)` | Parses the `password: <hex>` line from the machine-readable section of the access file. |
 | `(c *Client) remove(ctx context.Context, service string) error` | Low-level delete of a single generic-password entry; used by `Delete` and `Set`. |
-| `generatePassword() (string, error)` | Returns a 64-character hex string from 32 random bytes. |
-| `currentUser() string` | Returns `$USER`, falling back to `$LOGNAME`. |
 
 ---
 
@@ -300,16 +313,14 @@ Wraps the `keepassxc-cli` tool to store and retrieve secrets from a KeePass data
 | `(c *Client) add(ctx, key, value string) error` | Creates a new entry via `keepassxc-cli add --password-prompt`; stdin: `dbpw\nvalue\nvalue\n`. |
 | `(c *Client) edit(ctx, key, value string) error` | Updates an existing entry via `keepassxc-cli edit --password-prompt`; stdin: `dbpw\nvalue\nvalue\n`. Returns `ErrNotFound` if entry absent. |
 | `(c *Client) createDB(ctx) error` | Generates a random password, creates the `.kdbx` file via `keepassxc-cli db-create --set-password`, stores the password in login keychain, writes access file. |
-| `(c *Client) readPassword(ctx) (string, error)` | Reads db password from login keychain (service `envsecrets-keepassxc-<stem>`). Falls back to access file on exit code 44 (item not found) and restores the keychain entry automatically. Other errors are returned immediately. |
-| `(c *Client) storePassword(ctx, password string) error` | Upserts (`-U`) the password into the login keychain under service `envsecrets-keepassxc-<stem>`. |
+| `(c *Client) readPassword(ctx) (string, error)` | Delegates to `loginkc.ReadWithFallback` with service `envsecrets-keepassxc-<stem>` and `c.readAccessFile` as the fallback. |
+| `(c *Client) storePassword(ctx, password string) error` | Delegates to `loginkc.Store` with service `envsecrets-keepassxc-<stem>`. |
 | `firstRune(s string) rune` *(free function)* | Returns the first Unicode rune of a non-empty string; used by `ValidateKey`. |
 | `lastRune(s string) rune` *(free function)* | Returns the last Unicode rune of a non-empty string; used by `ValidateKey`. |
 | `classifyError(key string, out []byte) error` *(free function)* | Maps `keepassxc-cli` stderr to `ErrNotFound` or a generic error. |
 | `(c *Client) accessFilePath() string` | Returns `~/Documents/envsecrets-<stem>-keepassxc-access.txt`. |
 | `(c *Client) writeAccessFile(password string) error` | Writes a human-readable file (mode 0600) with db path, password, and GUI/CLI recovery instructions. |
 | `(c *Client) readAccessFile() (string, error)` | Parses the `password: <hex>` line from the access file's machine-readable section. |
-| `generatePassword() (string, error)` | Returns a 64-character hex string from 32 random bytes. |
-| `currentUser() string` | Returns `$USER`, falling back to `$LOGNAME`. |
 
 ---
 
