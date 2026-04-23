@@ -6,10 +6,10 @@
 //
 // # Concurrency
 //
-// Client is safe for concurrent use: loadManager is mutex-guarded. However,
-// the underlying *ksm.SecretsManager performs synchronous network calls and
-// the SDK provides no concurrency guarantees of its own. Callers must not
-// invoke Get/Set/Delete/List concurrently on the same Client.
+// Only lazy initialisation via loadManager is mutex-guarded. The Client is not
+// safe for concurrent Get/Set/Delete/List calls on the same instance: the
+// underlying *ksm.SecretsManager performs synchronous network calls and the
+// SDK provides no concurrency guarantees of its own.
 package keeper
 
 import (
@@ -82,11 +82,14 @@ func validateKey(key string) error {
 	return nil
 }
 
-// Available returns true when the config file exists on disk. It does not make a
-// network call; EnsureVault verifies that the credentials are actually usable.
+// Available reports whether the Keeper backend can be used on this machine.
+// It intentionally does not require the config file to already exist: first-time
+// setup is handled by EnsureVault, which creates or validates the config as
+// needed. Returning true unconditionally ensures Manager.Set does not skip the
+// EnsureVault call that prompts for the One-Time Access Token on first use.
+// No network call is made here.
 func (c *Client) Available(_ context.Context) bool {
-	_, err := os.Stat(c.configPath)
-	return err == nil
+	return true
 }
 
 // EnsureVault initialises KSM device credentials when the config file does not
@@ -149,7 +152,13 @@ func (c *Client) EnsureVault(_ context.Context) (bool, error) {
 		return true, nil
 	}
 
-	// Config exists — verify credentials.
+	// Config exists — tighten permissions in case the file was created by an
+	// older version (or manually) with broader perms. This is best-effort:
+	// chmod failures on an existing file are non-fatal because the subsequent
+	// verify call would surface any real access problem.
+	_ = os.Chmod(filepath.Dir(c.configPath), 0700)
+	_ = os.Chmod(c.configPath, 0600)
+
 	sm, err := c.loadManager()
 	if err != nil {
 		return false, err
@@ -429,8 +438,16 @@ func validateOAT(oat string) error {
 	}
 
 	parts := strings.Split(oat, ":")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+	if len(parts) != 2 {
 		return fmt.Errorf("keeper: invalid One-Time Access Token format: expected HOST:BASE64KEY (e.g. US:xxxxxxx), got %d colon-separated parts", len(parts))
+	}
+
+	if parts[0] == "" {
+		return fmt.Errorf("keeper: invalid One-Time Access Token format: host part before the colon must not be empty (expected e.g. US:xxxxxxx)")
+	}
+
+	if parts[1] == "" {
+		return fmt.Errorf("keeper: invalid One-Time Access Token format: key part after the colon must not be empty (expected e.g. US:xxxxxxx)")
 	}
 
 	return nil
@@ -455,7 +472,10 @@ func newSecureStorage(configPath string) *secureStorage {
 func (s *secureStorage) lockDown() {
 	// Best-effort: chmod failures are non-fatal. The data is written and the
 	// permissions will be corrected on the next successful lockDown call.
-	_ = os.Chmod(filepath.Dir(s.configPath), 0700)
+	// Only the file is chmodded here: the parent directory is secured once
+	// during EnsureVault. Re-chmodding the directory on every write would
+	// be surprising for users who point ksm-config at a file inside a shared
+	// or pre-existing directory (e.g. "."), which is not our to lock down.
 	_ = os.Chmod(s.configPath, 0600)
 }
 
