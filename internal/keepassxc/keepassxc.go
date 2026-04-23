@@ -21,10 +21,12 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/javorszky/envsecrets/internal/storeerr"
 )
 
 // ErrNotFound is returned when a KeePassXC entry does not exist.
-var ErrNotFound = errors.New("keepassxc: entry not found")
+var ErrNotFound = storeerr.ErrNotFound
 
 // ErrUnavailable is returned when keepassxc-cli is not installed.
 var ErrUnavailable = errors.New("keepassxc: keepassxc-cli unavailable")
