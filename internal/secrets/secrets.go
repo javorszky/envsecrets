@@ -113,9 +113,13 @@ func NewWithBackends(kc, durable SecretStore, durableName string) *Manager {
 }
 
 // WithWarningWriter overrides where non-fatal warning messages are written.
-// Returns the same Manager so calls can be chained.
+// Returns the same Manager so calls can be chained. Also propagates to the
+// keeper backend if that is the active durable store.
 func (m *Manager) WithWarningWriter(w io.Writer) *Manager {
 	m.warn = w
+	if k, ok := m.durable.(*keeper.Client); ok {
+		k.WithWarningWriter(w)
+	}
 	return m
 }
 

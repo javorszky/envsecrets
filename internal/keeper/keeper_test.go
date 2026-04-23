@@ -50,6 +50,8 @@ func TestValidateOAT(t *testing.T) {
 		{name: "valid region prefix", oat: "US:BASE64TOKENVALUE", wantErr: false},
 		{name: "valid EU region", oat: "EU:BASE64TOKENVALUE", wantErr: false},
 		{name: "valid full hostname", oat: "keepersecurity.com:BASE64TOKENVALUE", wantErr: false},
+		{name: "empty string", oat: "", wantErr: true},
+		{name: "whitespace only", oat: "   ", wantErr: true},
 		{name: "empty host part", oat: ":BASE64TOKENVALUE", wantErr: true},
 		{name: "empty key part", oat: "US:", wantErr: true},
 		{name: "both parts empty", oat: ":", wantErr: true},

@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -46,8 +47,9 @@ var ErrWrongType = errors.New("keeper: record is not a login type")
 
 // Client implements secrets.SecretStore backed by Keeper Secrets Manager.
 type Client struct {
-	configPath string // path to ksm-config.json; stores device credentials after first OAT init
-	folderUID  string // shared folder UID for creating new records; may be empty for read-only use
+	configPath string    // path to ksm-config.json; stores device credentials after first OAT init
+	folderUID  string    // shared folder UID for creating new records; may be empty for read-only use
+	warn       io.Writer // destination for non-fatal warnings (defaults to os.Stderr)
 
 	mu sync.Mutex
 	sm *ksm.SecretsManager // lazily initialised from config file; nil until first loadManager call
@@ -62,7 +64,14 @@ func New(configPath, folderUID string) *Client {
 			configPath = filepath.Join(home, configPath[2:])
 		}
 	}
-	return &Client{configPath: configPath, folderUID: folderUID}
+	return &Client{configPath: configPath, folderUID: folderUID, warn: os.Stderr}
+}
+
+// WithWarningWriter overrides where non-fatal warning messages are written.
+// Returns the same Client so calls can be chained.
+func (c *Client) WithWarningWriter(w io.Writer) *Client {
+	c.warn = w
+	return c
 }
 
 // validateKey rejects keys that would cause silent lookup failures.
@@ -123,36 +132,30 @@ func (c *Client) EnsureVault(_ context.Context) (bool, error) {
 		// Pre-create the config file at 0600 so the SDK never gets the chance
 		// to call os.Create (which writes at 0666). The SDK's createConfigFileIfMissing
 		// checks existence before creating, so it will find this file and skip its own create.
-		//
-		// Track whether this run created the file. On failure we only remove the
-		// file if we created it — if os.ErrExist fired, another process owns it and
-		// we must not delete it.
-		created := false
 		f, createErr := os.OpenFile(c.configPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0600)
-		if createErr != nil && !errors.Is(createErr, os.ErrExist) {
+		if createErr != nil {
+			if errors.Is(createErr, os.ErrExist) {
+				// Another process created the config between our Stat and OpenFile.
+				// Do not consume the one-time OAT; ask the caller to re-run, which
+				// will take the existing-config verification path.
+				return false, fmt.Errorf("keeper: config file appeared concurrently at %s; re-run to verify existing credentials (OAT was not used)", c.configPath)
+			}
 			return false, fmt.Errorf("keeper: create config file: %w", createErr)
 		}
-		if createErr == nil {
-			created = true
-			_, _ = f.WriteString("{}")
-			_ = f.Close()
-		}
+		_, _ = f.WriteString("{}")
+		_ = f.Close()
 
 		sm, err := c.initManager(oat)
 		if err != nil {
-			if created {
-				_ = os.Remove(c.configPath)
-			}
+			_ = os.Remove(c.configPath)
 			return false, err
 		}
 
 		// Probe confirms the OAT was accepted and the private key is now stored.
 		if _, probeErr := sm.GetSecrets([]string{}); probeErr != nil {
 			// Remove the partial config so the next run re-prompts rather than
-			// failing with a stale/corrupt file. Only remove if we created it.
-			if created {
-				_ = os.Remove(c.configPath)
-			}
+			// failing with a stale/corrupt file.
+			_ = os.Remove(c.configPath)
 			return false, fmt.Errorf("keeper: verify OAT: %w", probeErr)
 		}
 
@@ -255,9 +258,10 @@ func (c *Client) Set(_ context.Context, key, value string) error {
 }
 
 // Delete removes the login record whose title equals key.
-// Returns ErrNotFound when the record is absent (caller may treat this as a
-// no-op), ErrDuplicateTitles or ErrWrongType when the key cannot be resolved
-// safely.
+// Returns ErrNotFound when the record is absent; the secrets.Manager layer
+// treats this as a no-op via isDurableNotFound so callers see idempotent
+// deletes. Returns ErrDuplicateTitles or ErrWrongType when the key cannot be
+// resolved safely.
 func (c *Client) Delete(_ context.Context, key string) error {
 	if err := validateKey(key); err != nil {
 		return err
@@ -315,7 +319,7 @@ func (c *Client) List(_ context.Context) ([]string, error) {
 	keys := make([]string, 0, len(counts))
 	for title, n := range counts {
 		if n > 1 {
-			fmt.Fprintf(os.Stderr, "warning: keeper: skipping %q — %d records share this title; resolve duplicates in the Keeper web console\n", title, n)
+			fmt.Fprintf(c.warn, "warning: keeper: skipping %q — %d records share this title; resolve duplicates in the Keeper web console\n", title, n)
 			continue
 		}
 		keys = append(keys, title)
@@ -365,6 +369,13 @@ func (c *Client) loadManager() (*ksm.SecretsManager, error) {
 
 	if c.sm != nil {
 		return c.sm, nil
+	}
+
+	if _, err := os.Stat(c.configPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("keeper: config not initialised at %s; run a write command to trigger first-time setup: %w", c.configPath, ErrUnavailable)
+		}
+		return nil, fmt.Errorf("keeper: stat config file %s: %w", c.configPath, err)
 	}
 
 	sm := ksm.NewSecretsManager(&ksm.ClientOptions{
@@ -444,6 +455,10 @@ func readOAT() (string, error) {
 //   - "REGION:BASE64KEY"     — e.g. "US:BASE64KEY" (recommended)
 //   - "hostname:BASE64KEY"   — e.g. "keepersecurity.com:BASE64KEY"
 func validateOAT(oat string) error {
+	if strings.TrimSpace(oat) == "" {
+		return fmt.Errorf("keeper: One-Time Access Token must not be empty")
+	}
+
 	if !strings.Contains(oat, ":") {
 		// Legacy format — no region prefix. SDK accepts this without logging.
 		return nil
@@ -487,7 +502,7 @@ func (s *secureStorage) lockDown() {
 	// Only the file is chmodded here: the parent directory is secured once
 	// during EnsureVault. Re-chmodding the directory on every write would
 	// be surprising for users who point ksm-config at a file inside a shared
-	// or pre-existing directory (e.g. "."), which is not our to lock down.
+	// or pre-existing directory (e.g. "."), which is not ours to lock down.
 	_ = os.Chmod(s.configPath, 0600)
 }
 
