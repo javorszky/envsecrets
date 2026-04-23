@@ -27,6 +27,10 @@ import (
 	"github.com/javorszky/envsecrets/internal/storeerr"
 )
 
+// loginKeychainServicePrefix is the prefix for the macOS login-keychain service
+// name used to store the keychain file's password.
+const loginKeychainServicePrefix = "envsecrets-keychain-"
+
 // ErrNotFound is returned when a keychain entry does not exist.
 var ErrNotFound = storeerr.ErrNotFound
 
@@ -268,7 +272,7 @@ func (c *Client) createKeychainFile(ctx context.Context) error {
 	}
 
 	// Store the password in the login keychain for later retrieval.
-	if err := c.storeKeychainPassword(ctx, password); err != nil {
+	if err := loginkc.Store(ctx, loginKeychainServicePrefix+c.vault, password); err != nil {
 		return fmt.Errorf("storing keychain password: %w", err)
 	}
 
@@ -284,7 +288,7 @@ func (c *Client) createKeychainFile(ctx context.Context) error {
 }
 
 func (c *Client) unlockKeychainFile(ctx context.Context) error {
-	password, err := c.readKeychainPassword(ctx)
+	password, err := loginkc.ReadWithFallback(ctx, loginKeychainServicePrefix+c.vault, c.readAccessFile)
 	if err != nil {
 		return fmt.Errorf("reading keychain password: %w", err)
 	}
@@ -301,18 +305,6 @@ func (c *Client) unlockKeychainFile(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-// storeKeychainPassword saves the keychain file's password into the user's
-// login keychain under service "envsecrets-keychain-<vault>".
-func (c *Client) storeKeychainPassword(ctx context.Context, password string) error {
-	return loginkc.Store(ctx, "envsecrets-keychain-"+c.vault, password)
-}
-
-// readKeychainPassword retrieves the keychain file's password from the login
-// keychain, falling back to the access-details file on exit code 44.
-func (c *Client) readKeychainPassword(ctx context.Context) (string, error) {
-	return loginkc.ReadWithFallback(ctx, "envsecrets-keychain-"+c.vault, c.readAccessFile)
 }
 
 // --- access-details file -----------------------------------------------------
