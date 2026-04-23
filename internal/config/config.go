@@ -99,9 +99,11 @@ type SourceState struct {
 type Config struct {
 	Vault          string `cfg:"vault"           env:"ENVSECRETS_VAULT"           flag:"vault"           default:"envsecrets" scope:"global"  usage:"local keychain file name — secrets stored at ~/.local/share/envsecrets/<vault>.keychain"`
 	OpVault        string `cfg:"op_vault"        env:"ENVSECRETS_OP_VAULT"        flag:"op-vault"        default:"Envsecrets" scope:"global"  usage:"1Password vault name — created automatically on first write if it does not exist"`
-	DurableBackend string `cfg:"durable_backend" env:"ENVSECRETS_DURABLE_BACKEND" flag:"durable-backend" default:"1password"  scope:"global"  usage:"durable secret backend: \"1password\" or \"keepassxc\""`
-	KpxcDB         string `cfg:"kpxc_db"         env:"ENVSECRETS_KPXC_DB"         flag:"kpxc-db"         default:"envsecrets" scope:"global"  usage:"KeePassXC database stem name — stored as ~/.local/share/envsecrets/<name>.kdbx"`
-	Template       string `cfg:"template"        env:"ENVSECRETS_TEMPLATE"        flag:"template"        default:".env.tpl"   scope:"gen-env" usage:"gen-env template file path — may contain secret:KEY references"`
+	DurableBackend string `cfg:"durable_backend" env:"ENVSECRETS_DURABLE_BACKEND" flag:"durable-backend" default:"1password"  scope:"global"  usage:"durable secret backend: \"1password\", \"keepassxc\", or \"keeper\""`
+	KpxcDB         string `cfg:"kpxc_db"         env:"ENVSECRETS_KPXC_DB"         flag:"kpxc-db"         default:"envsecrets"                              scope:"global"  usage:"KeePassXC database stem name — stored as ~/.local/share/envsecrets/<name>.kdbx"`
+	KsmConfig      string `cfg:"ksm_config"      env:"ENVSECRETS_KSM_CONFIG"      flag:"ksm-config"      default:"~/.config/envsecrets/ksm-config.json"    scope:"global"  usage:"Keeper Secrets Manager config file path — created on first use with a One-Time Access Token"`
+	KsmFolder      string `cfg:"ksm_folder"      env:"ENVSECRETS_KSM_FOLDER"      flag:"ksm-folder"      default:""                                        scope:"global"  usage:"Keeper Secrets Manager shared folder UID — required when creating new secrets"`
+	Template       string `cfg:"template"        env:"ENVSECRETS_TEMPLATE"        flag:"template"        default:".env.tpl"                                scope:"gen-env" usage:"gen-env template file path — may contain secret:KEY references"`
 	Output         string `cfg:"output"          env:"ENVSECRETS_OUTPUT"          flag:"output"          default:".env"       scope:"gen-env" usage:"gen-env output file path — add this file to .gitignore"`
 
 	// Non-configurable metadata — no struct tags, not iterated by AllFields.

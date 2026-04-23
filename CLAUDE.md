@@ -39,6 +39,10 @@ When committing code, use the `Assisted-By:` trailer instead of `Co-Authored-By:
 Assisted-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 ```
 
+## Toolchain
+
+**Local vendoring for AI agents.** After any `go get` or `go mod tidy`, run `go mod vendor` to update the local `vendor/` directory. Read SDK source from `vendor/` — never reach into the global module cache (`~/go/pkg/mod/`). The `vendor/` directory is intentionally NOT committed to the repository; it exists only as a local development convenience for reading dependency source.
+
 ## Branch Workflow
 
 After a feature branch has been merged into main, ALWAYS:

@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/javorszky/envsecrets/internal/keepassxc"
+	"github.com/javorszky/envsecrets/internal/keeper"
 	"github.com/javorszky/envsecrets/internal/keychain"
 	"github.com/javorszky/envsecrets/internal/onepassword"
 )
@@ -50,12 +51,14 @@ type Manager struct {
 }
 
 // New returns a Manager backed by a dedicated local keychain file and a durable
-// backend selected by durableBackend ("1password" or "keepassxc").
+// backend selected by durableBackend ("1password", "keepassxc", or "keeper").
 //   - keychainVault:  name for the keychain file (~/.local/share/envsecrets/<name>.keychain)
 //   - opVault:        1Password vault name (used when durableBackend == "1password")
-//   - durableBackend: "1password" (default) or "keepassxc"
+//   - durableBackend: "1password" (default), "keepassxc", or "keeper"
 //   - kpxcDB:         KeePassXC database stem name (e.g. "envsecrets"); used when durableBackend == "keepassxc"
-func New(keychainVault, opVault, durableBackend, kpxcDB string) *Manager {
+//   - ksmConfig:      Keeper SM config file path; used when durableBackend == "keeper"
+//   - ksmFolder:      Keeper SM shared folder UID; used when durableBackend == "keeper"
+func New(keychainVault, opVault, durableBackend, kpxcDB, ksmConfig, ksmFolder string) *Manager {
 	var durable SecretStore
 	var durableName string
 
@@ -67,6 +70,9 @@ func New(keychainVault, opVault, durableBackend, kpxcDB string) *Manager {
 	case "keepassxc":
 		durable = keepassxc.New(kpxcDB)
 		durableName = "KeePassXC"
+	case "keeper":
+		durable = keeper.New(ksmConfig, ksmFolder)
+		durableName = "Keeper"
 	case "", "1password":
 		durable = onepassword.New(opVault)
 		durableName = "1Password"
@@ -107,16 +113,23 @@ func NewWithBackends(kc, durable SecretStore, durableName string) *Manager {
 }
 
 // WithWarningWriter overrides where non-fatal warning messages are written.
-// Returns the same Manager so calls can be chained.
+// Returns the same Manager so calls can be chained. Also propagates to the
+// keeper backend if that is the active durable store.
 func (m *Manager) WithWarningWriter(w io.Writer) *Manager {
 	m.warn = w
+	if k, ok := m.durable.(*keeper.Client); ok {
+		k.WithWarningWriter(w)
+	}
 	return m
 }
 
 // isDurableNotFound reports whether err represents a "not found" response from
-// any supported durable backend.
+// any supported durable backend. ErrDuplicateTitles and ErrWrongType are NOT
+// treated as "not found" — they are real errors that must surface to the caller.
 func isDurableNotFound(err error) bool {
-	return errors.Is(err, onepassword.ErrNotFound) || errors.Is(err, keepassxc.ErrNotFound)
+	return errors.Is(err, onepassword.ErrNotFound) ||
+		errors.Is(err, keepassxc.ErrNotFound) ||
+		errors.Is(err, keeper.ErrNotFound)
 }
 
 // Get retrieves a secret by key.
@@ -225,8 +238,10 @@ func (m *Manager) Sync(ctx context.Context) (synced int, err error) {
 		return 0, fmt.Errorf("%s is unavailable; cannot sync", m.durableName)
 	}
 
-	// Only pre-create the durable vault when it is local (KeePassXC). The
-	// type assertion intentionally avoids a broader "autoCreateOnSync" flag on
+	// Only pre-create the durable vault when it is local (KeePassXC). Remote-backed
+	// stores (1Password, Keeper) must have their vault/app already set up — auto-creating
+	// on a mistyped name would silently succeed with zero items, masking misconfiguration.
+	// The type assertion intentionally avoids a broader "autoCreateOnSync" flag on
 	// the Manager — the policy is entirely about the backend's nature, not
 	// about Manager state, so we key it off the concrete backend type.
 	if _, isKPXC := m.durable.(*keepassxc.Client); isKPXC {

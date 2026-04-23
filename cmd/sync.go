@@ -11,14 +11,15 @@ import (
 var syncCmd = &cobra.Command{
 	Use:   "sync",
 	Short: "Pull all secrets from the durable store into Keychain",
-	Long: `Sync pulls every item from the configured durable store (1Password or
-KeePassXC) and writes it into the local macOS Keychain.
+	Long: `Sync pulls every item from the configured durable store (1Password,
+KeePassXC, or Keeper) and writes it into the local macOS Keychain.
 
 Run this once on a new machine after cloning a project to bootstrap
 your local Keychain. After this, all fetches can work fully offline.
 
 Requires the durable store to be available (1Password app running and
-unlocked, or keepassxc-cli installed for KeePassXC).
+unlocked, keepassxc-cli installed for KeePassXC, or a valid Keeper
+Secrets Manager config for Keeper).
 
 Examples:
   envsecrets sync
@@ -26,7 +27,7 @@ Examples:
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
-		mgr := secrets.New(cfg.Vault, cfg.OpVault, cfg.DurableBackend, cfg.KpxcDB)
+		mgr := secrets.New(cfg.Vault, cfg.OpVault, cfg.DurableBackend, cfg.KpxcDB, cfg.KsmConfig, cfg.KsmFolder)
 
 		fmt.Fprintf(os.Stdout, "syncing secrets into Keychain...\n")
 

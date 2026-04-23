@@ -345,15 +345,17 @@ func TestAllFields(t *testing.T) {
 
 	fields := config.AllFields()
 
-	require.Len(t, fields, 6)
+	require.Len(t, fields, 8)
 
-	// All six TOML keys must be present in order.
+	// All eight TOML keys must be present in order.
 	assert.Equal(t, "vault", fields[0].Key)
 	assert.Equal(t, "op_vault", fields[1].Key)
 	assert.Equal(t, "durable_backend", fields[2].Key)
 	assert.Equal(t, "kpxc_db", fields[3].Key)
-	assert.Equal(t, "template", fields[4].Key)
-	assert.Equal(t, "output", fields[5].Key)
+	assert.Equal(t, "ksm_config", fields[4].Key)
+	assert.Equal(t, "ksm_folder", fields[5].Key)
+	assert.Equal(t, "template", fields[6].Key)
+	assert.Equal(t, "output", fields[7].Key)
 
 	// vault — global scope
 	vault := fields[0]
@@ -387,8 +389,24 @@ func TestAllFields(t *testing.T) {
 	assert.Equal(t, "global", kpxcDB.Scope)
 	assert.NotEmpty(t, kpxcDB.Usage)
 
+	// ksm_config — global scope
+	ksmConfig := fields[4]
+	assert.Equal(t, "ENVSECRETS_KSM_CONFIG", ksmConfig.EnvVar)
+	assert.Equal(t, "ksm-config", ksmConfig.Flag)
+	assert.Equal(t, "~/.config/envsecrets/ksm-config.json", ksmConfig.Default)
+	assert.Equal(t, "global", ksmConfig.Scope)
+	assert.NotEmpty(t, ksmConfig.Usage)
+
+	// ksm_folder — global scope
+	ksmFolder := fields[5]
+	assert.Equal(t, "ENVSECRETS_KSM_FOLDER", ksmFolder.EnvVar)
+	assert.Equal(t, "ksm-folder", ksmFolder.Flag)
+	assert.Equal(t, "", ksmFolder.Default)
+	assert.Equal(t, "global", ksmFolder.Scope)
+	assert.NotEmpty(t, ksmFolder.Usage)
+
 	// template — gen-env scope
-	template := fields[4]
+	template := fields[6]
 	assert.Equal(t, "ENVSECRETS_TEMPLATE", template.EnvVar)
 	assert.Equal(t, "template", template.Flag)
 	assert.Equal(t, ".env.tpl", template.Default)
@@ -396,7 +414,7 @@ func TestAllFields(t *testing.T) {
 	assert.NotEmpty(t, template.Usage)
 
 	// output — gen-env scope
-	output := fields[5]
+	output := fields[7]
 	assert.Equal(t, "ENVSECRETS_OUTPUT", output.EnvVar)
 	assert.Equal(t, "output", output.Flag)
 	assert.Equal(t, ".env", output.Default)
