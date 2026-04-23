@@ -45,7 +45,7 @@ Examples:
 			}
 		}
 
-		mgr := secrets.New(cfg.Vault, cfg.OpVault, cfg.DurableBackend, cfg.KpxcDB)
+		mgr := secrets.New(cfg.Vault, cfg.OpVault, cfg.DurableBackend, cfg.KpxcDB, cfg.KsmConfig, cfg.KsmFolder)
 
 		if err := mgr.Delete(ctx, key); err != nil {
 			return fmt.Errorf("delete failed: %w", err)

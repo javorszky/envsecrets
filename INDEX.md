@@ -136,8 +136,10 @@ Governs all resolved runtime configuration. The six configurable fields carry st
 |-------|------|-------------|-------------|
 | `Vault` | `string` | `cfg:"vault" env:"ENVSECRETS_VAULT" flag:"vault" default:"envsecrets" scope:"global"` | Stem name of the dedicated local keychain file. Must match `[a-zA-Z0-9][a-zA-Z0-9_-]*`. File lives at `~/.local/share/envsecrets/<Vault>.keychain`. |
 | `OpVault` | `string` | `cfg:"op_vault" env:"ENVSECRETS_OP_VAULT" flag:"op-vault" default:"Envsecrets" scope:"global"` | 1Password vault name where secrets are stored. |
-| `DurableBackend` | `string` | `cfg:"durable_backend" env:"ENVSECRETS_DURABLE_BACKEND" flag:"durable-backend" default:"1password" scope:"global"` | Selects the durable backend: `"1password"` (default) or `"keepassxc"`. Unrecognised values fall back to `"1password"` with a warning. |
+| `DurableBackend` | `string` | `cfg:"durable_backend" env:"ENVSECRETS_DURABLE_BACKEND" flag:"durable-backend" default:"1password" scope:"global"` | Selects the durable backend: `"1password"` (default), `"keepassxc"`, or `"keeper"`. Unrecognised values fall back to `"1password"` with a warning. |
 | `KpxcDB` | `string` | `cfg:"kpxc_db" env:"ENVSECRETS_KPXC_DB" flag:"kpxc-db" default:"envsecrets" scope:"global"` | Stem name of the KeePassXC database. Must match `[a-zA-Z0-9][a-zA-Z0-9_-]*`. Database lives at `~/.local/share/envsecrets/<KpxcDB>.kdbx`. |
+| `KsmConfig` | `string` | `cfg:"ksm_config" env:"ENVSECRETS_KSM_CONFIG" flag:"ksm-config" default:"~/.config/envsecrets/ksm-config.json" scope:"global"` | Path to the Keeper Secrets Manager device-credentials JSON file. Created automatically on first use when a One-Time Access Token is provided. Used when `DurableBackend == "keeper"`. |
+| `KsmFolder` | `string` | `cfg:"ksm_folder" env:"ENVSECRETS_KSM_FOLDER" flag:"ksm-folder" default:"" scope:"global"` | Keeper Secrets Manager shared folder UID. Required only when creating new secrets; reads and deletes work without it. Used when `DurableBackend == "keeper"`. |
 | `Template` | `string` | `cfg:"template" env:"ENVSECRETS_TEMPLATE" flag:"template" default:".env.tpl" scope:"gen-env"` | Path to the `gen-env` template file. |
 | `Output` | `string` | `cfg:"output" env:"ENVSECRETS_OUTPUT" flag:"output" default:".env" scope:"gen-env"` | Path to the `gen-env` output file. |
 | `FilePath` | `string` | — | Resolved path to the config file (may not exist on disk). Not iterated by `AllFields`. |
@@ -148,7 +150,7 @@ Governs all resolved runtime configuration. The six configurable fields carry st
 
 | Signature | Description |
 |-----------|-------------|
-| `AllFields() []FieldMeta` | Returns `FieldMeta` for every struct field that has a `cfg` tag (currently 6: vault, op\_vault, durable\_backend, kpxc\_db, template, output). Fields without a `cfg` tag are skipped. |
+| `AllFields() []FieldMeta` | Returns `FieldMeta` for every struct field that has a `cfg` tag (currently 8: vault, op\_vault, durable\_backend, kpxc\_db, ksm\_config, ksm\_folder, template, output). Fields without a `cfg` tag are skipped. |
 | `GlobalFields() []FieldMeta` | Subset of `AllFields()` where `Scope == "global"`. Delegates to `ScopedFields("global")`. Used by `root.go` for `PersistentFlags` registration. |
 | `ScopedFields(scope string) []FieldMeta` | Subset of `AllFields()` where `Scope == scope`. Used by `gen_env.go` with `"gen-env"`. |
 | `GetValue(cfg *Config, m FieldMeta) string` | Returns the current string value of the `Config` field described by `m`, using `m.FieldIndex` directly. Used by `config show` to retrieve each field's resolved value. |
@@ -311,13 +313,63 @@ Wraps the `keepassxc-cli` tool to store and retrieve secrets from a KeePass data
 
 ---
 
+## `internal/keeper/` — Keeper Secrets Manager Backend
+
+Wraps the Keeper Secrets Manager Go SDK (`github.com/keeper-security/secrets-manager-go/core`) to store and retrieve secrets from a cloud-hosted KSM application. Implements `secrets.SecretStore`. Authentication uses a One-Time Access Token (OAT) for initial device registration; subsequent calls use stored cryptographic credentials in a local JSON config file. The SDK authenticates at device level — SSO does not participate after the initial OAT setup.
+
+Secrets are stored exclusively as Keeper `login` records (title = key, password field = value). Records with non-login types or duplicate titles cause explicit errors rather than silent data loss.
+
+### Sentinel errors
+
+| Name | When returned |
+|------|--------------|
+| `ErrNotFound` | Returned by `Get`, `Delete` when no record with that title exists. Caught by `isDurableNotFound` in the Manager. |
+| `ErrUnavailable` | Returned by `loadManager` when the config file cannot be loaded (absent or corrupt). Wraps the error from `loadManager`. |
+| `ErrDuplicateTitles` | Returned by `lookupOne` when `GetSecretsByTitle` returns more than one result. Keeper does not enforce title uniqueness; the user must resolve duplicates in the web console. NOT caught by `isDurableNotFound`. |
+| `ErrWrongType` | Returned by `lookupOne` when the matching record's type is not `"login"`. NOT caught by `isDurableNotFound`. |
+
+### `Client` struct
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `configPath` *(unexported)* | `string` | Path to `ksm-config.json`; stores device credentials (private key, device ID, client ID) after first OAT initialisation. `~/` prefix is expanded at construction time. |
+| `folderUID` *(unexported)* | `string` | Keeper shared folder UID used when creating new records. May be empty for read-only use; `Set` returns a clear error if empty when creation is needed. |
+| `mu` *(unexported)* | `sync.Mutex` | Guards lazy initialisation of `sm`. |
+| `sm` *(unexported)* | `*ksm.SecretsManager` | Cached SecretsManager; nil until first `loadManager` call. Reused across calls to avoid repeated config-file reads. NOT set from the OAT-initialised manager created during first-time `EnsureVault`. |
+
+### Exported functions and methods
+
+| Signature | Description |
+|-----------|-------------|
+| `New(configPath, folderUID string) *Client` | Returns a Client. Expands `~/` in `configPath`. Does not make any network calls. |
+| `(c *Client) Available(_ context.Context) bool` | Returns `true` when the config file exists on disk. No network call. |
+| `(c *Client) EnsureVault(_ context.Context) (bool, error)` | First-time: validates and prompts for OAT (no echo on TTY, pipe-safe), pre-creates the config file at `0600` to prevent the SDK's `os.Create` at `0666`, registers device with KSM via `initManager`, runs a probe; on probe failure removes the partial config so the next run re-prompts. Subsequent: loads config, runs probe. Returns `(true, nil)` on first creation, `(false, nil)` if already valid. All SDK writes go through `secureStorage` which keeps file at `0600`. |
+| `(c *Client) Get(_ context.Context, key string) (string, error)` | Validates key (via `validateKey`), calls `lookupOne`, returns `record.Password()`. Returns `fmt.Errorf("keeper: get %q: %w", key, ErrNotFound)` when absent, or `ErrDuplicateTitles`/`ErrWrongType` from `lookupOne`. |
+| `(c *Client) Set(_ context.Context, key, value string) error` | Validates key; if record exists calls `SetPassword`+`Save`; if absent creates a new `"login"` record with username `"envsecrets"` via `NewRecordCreate`+`NewLogin`+`NewPassword`+`CreateSecretWithRecordData`. Errors on `ErrDuplicateTitles`, `ErrWrongType`, or empty `folderUID` on create. |
+| `(c *Client) Delete(_ context.Context, key string) error` | Validates key, calls `lookupOne`; returns `fmt.Errorf("keeper: delete %q: %w", key, ErrNotFound)` when absent, calls `DeleteSecrets([]string{record.Uid})` otherwise. Errors on `ErrDuplicateTitles` or `ErrWrongType`. |
+| `(c *Client) List(_ context.Context) ([]string, error)` | Calls `sm.GetSecrets([]string{})`, skips non-login records, counts titles, warns on stderr and excludes duplicate titles. Returns sorted slice. One full-vault network fetch per call. |
+
+### Key unexported functions
+
+| Signature | Description |
+|-----------|-------------|
+| `(c *Client) lookupOne(sm *ksm.SecretsManager, key string) (*ksm.Record, error)` | Calls `sm.GetSecretsByTitle(key)`. Returns `(nil, nil)` when absent, `(record, nil)` for exactly one login record, `ErrDuplicateTitles` for multiple matches, `ErrWrongType` when the single match is not a `"login"` record. Never swallows SDK errors. |
+| `(c *Client) loadManager() (*ksm.SecretsManager, error)` | Returns the cached `*ksm.SecretsManager`, creating it from `newSecureStorage(c.configPath)` on the first call. Guards the lazy-init with `c.mu`. |
+| `(c *Client) initManager(oat string) (*ksm.SecretsManager, error)` | Creates a `*ksm.SecretsManager` with `opts.Token = oat` and `newSecureStorage` for one-time device registration. Result is NOT cached. |
+| `readOAT() (string, error)` *(free function)* | Prompts on stderr. If stdin is a TTY, uses `term.ReadPassword` (no echo, from `golang.org/x/term`). If stdin is a pipe, reads one line with `bufio.Scanner`. Trims whitespace; validates via `validateOAT`; returns error on empty or malformed result. |
+| `validateOAT(oat string) error` *(free function)* | Rejects tokens that would trigger the SDK's `klog.Warning` with the raw token: allows bare legacy tokens (no colon) and exactly `HOST:BASE64KEY`; rejects empty parts or >2 colon-separated parts. |
+| `validateKey(key string) error` *(free function)* | Rejects empty keys, keys with leading/trailing whitespace, and keys containing embedded control characters (`\n`, `\r`, `\t`, `\x00`). |
+| `newSecureStorage(configPath string) *secureStorage` *(free function)* | Wraps `ksm.NewFileKeyValueStorage` in a `secureStorage` that chmods the file to `0600` and dir to `0700` after every write (`Set`, `Delete`, `DeleteAll`, `SaveStorage`). Eliminates the window where the SDK would leave the private key world-readable. |
+
+---
+
 ## `internal/secrets/` — Orchestration Layer
 
 Coordinates reads and writes across the two backends through a single unified interface. Neither backend is imported directly by `cmd/`; all access goes through `Manager`.
 
 ### `SecretStore` interface
 
-Implemented by `*keychain.Client`, `*onepassword.Client`, and `*keepassxc.Client`.
+Implemented by `*keychain.Client`, `*onepassword.Client`, `*keepassxc.Client`, and `*keeper.Client`.
 
 | Method signature | Description |
 |-----------------|-------------|
@@ -335,15 +387,15 @@ Governs the combined read/write/delete/sync logic across the two `SecretStore` b
 | Field | Type | Description |
 |-------|------|-------------|
 | `kc` *(unexported)* | `SecretStore` | Keychain backend (fast local cache). |
-| `durable` *(unexported)* | `SecretStore` | Durable backend — either `*onepassword.Client` or `*keepassxc.Client`, chosen at construction time. |
-| `durableName` *(unexported)* | `string` | Display name for the durable backend (`"1Password"` or `"KeePassXC"`). Used in warning and error messages. |
+| `durable` *(unexported)* | `SecretStore` | Durable backend — `*onepassword.Client`, `*keepassxc.Client`, or `*keeper.Client`, chosen at construction time. |
+| `durableName` *(unexported)* | `string` | Display name for the durable backend (`"1Password"`, `"KeePassXC"`, or `"Keeper"`). Used in warning and error messages. |
 | `warn` *(unexported)* | `io.Writer` | Destination for non-fatal warnings (default: `os.Stderr`). |
 
 ### Exported functions and methods
 
 | Signature | Description |
 |-----------|-------------|
-| `New(keychainVault, opVault, durableBackend, kpxcDB string) *Manager` | Constructs a Manager. `durableBackend` selects `"keepassxc"` → `keepassxc.New(kpxcDB)` or `""` / `"1password"` → `onepassword.New(opVault)`; unrecognised values fall back to 1Password with a stderr warning (always stderr; emitted before `WithWarningWriter` can take effect). |
+| `New(keychainVault, opVault, durableBackend, kpxcDB, ksmConfig, ksmFolder string) *Manager` | Constructs a Manager. `durableBackend` selects `"keepassxc"` → `keepassxc.New(kpxcDB)`, `"keeper"` → `keeper.New(ksmConfig, ksmFolder)`, or `""` / `"1password"` → `onepassword.New(opVault)`; unrecognised values fall back to 1Password with a stderr warning (always stderr; emitted before `WithWarningWriter` can take effect). |
 | `NewWithBackends(kc, durable SecretStore, durableName string) *Manager` | Accepts arbitrary `SecretStore` implementations and an explicit display name for the durable backend; used in tests with `stubStore`. |
 | `(m *Manager) WithWarningWriter(w io.Writer) *Manager` | Overrides the warning writer; returns `m` for chaining. |
 | `(m *Manager) Get(ctx context.Context, key string) (string, error)` | Keychain first. On miss, tries the durable store (if available) and caches the result back into Keychain. |
@@ -355,7 +407,7 @@ Governs the combined read/write/delete/sync logic across the two `SecretStore` b
 
 | Signature | Description |
 |-----------|-------------|
-| `isDurableNotFound(err error) bool` | Returns true when `err` is `onepassword.ErrNotFound` or `keepassxc.ErrNotFound`. Used by `Get` and `Delete` to treat any durable-backend "not found" uniformly. |
+| `isDurableNotFound(err error) bool` | Returns true when `err` is `onepassword.ErrNotFound`, `keepassxc.ErrNotFound`, or `keeper.ErrNotFound`. Used by `Get` and `Delete` to treat any durable-backend "not found" uniformly. |
 
 ---
 
@@ -368,15 +420,16 @@ main.go → cmd.Execute()
               │
    internal/secrets/secrets.go  (Manager)
           /              \
-internal/keychain/    internal/onepassword/   internal/keepassxc/
-keychain.go           onepassword.go          keepassxc.go
-     │                       │                      │
-macOS `security`         1Password `op`       keepassxc-cli
+internal/keychain/    internal/onepassword/   internal/keepassxc/   internal/keeper/
+keychain.go           onepassword.go          keepassxc.go          keeper.go
+     │                       │                      │                     │
+macOS `security`         1Password `op`       keepassxc-cli         KSM cloud API
 ```
 
 The durable backend slot (right side) is selected at construction time by `cfg.DurableBackend`:
 - `"1password"` (default) → `*onepassword.Client`
 - `"keepassxc"` → `*keepassxc.Client`
+- `"keeper"` → `*keeper.Client`
 
 **Read path:** Keychain → miss → durable store → cache to Keychain → return  
 **Write path:** `kc.EnsureVault` → Keychain (must succeed) → `durable.EnsureVault` → durable store (best-effort)  
@@ -387,4 +440,5 @@ The durable backend slot (right side) is selected at construction time by `cfg.D
 **Access-details files** (written once at vault/database creation):  
 - Keychain: `~/Documents/envsecrets-<vault>-keychain-access.txt` — contains the keychain password  
 - 1Password: `~/Documents/envsecrets-<vault>-1password-access.txt` — contains the vault name and access instructions  
-- KeePassXC: `~/Documents/envsecrets-<stem>-keepassxc-access.txt` — contains the database path and password (where `<stem>` is the `kpxc_db` config value)  
+- KeePassXC: `~/Documents/envsecrets-<stem>-keepassxc-access.txt` — contains the database path and password (where `<stem>` is the `kpxc_db` config value)
+- Keeper: `~/.config/envsecrets/ksm-config.json` (default path) — device-credentials JSON written by the SDK on first OAT registration; no separate human-readable access file is created  
