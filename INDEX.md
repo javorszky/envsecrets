@@ -171,7 +171,7 @@ Each vault gets a dedicated keychain file at `~/.local/share/envsecrets/<vault>.
 
 | Name | Description |
 |------|-------------|
-| `ErrNotFound` | Returned when a keychain entry does not exist (wraps exit code 44 from `security`). |
+| `ErrNotFound` | Returned when a keychain entry does not exist (wraps exit code 44 from `security`). Alias for `storeerr.ErrNotFound`. |
 
 ### `Client` struct
 
@@ -221,7 +221,7 @@ Wraps the `op` CLI. All secrets are stored as Login items; the item title is the
 
 | Name | Description |
 |------|-------------|
-| `ErrNotFound` | Returned when a 1Password item does not exist. |
+| `ErrNotFound` | Returned when a 1Password item does not exist. Alias for `storeerr.ErrNotFound`. |
 | `ErrUnavailable` | Returned when the `op` binary is absent or the local 1Password app is not running / signed in. |
 
 ### `Client` struct
@@ -267,7 +267,7 @@ Wraps the `keepassxc-cli` tool to store and retrieve secrets from a KeePass data
 
 | Name | Description |
 |------|-------------|
-| `ErrNotFound` | Returned when a KeePassXC entry does not exist (`keepassxc-cli` stderr contains "could not find entry"). |
+| `ErrNotFound` | Returned when a KeePassXC entry does not exist (`keepassxc-cli` stderr contains "could not find entry"). Alias for `storeerr.ErrNotFound`. |
 | `ErrUnavailable` | Returned when `keepassxc-cli` is not on `$PATH`. |
 | `ErrInvalidKey` | Returned by `ValidateKey` when a key is empty, contains `"/"` (KeePassXC path separator), contains `"\n"` or `"\r"` (break the stdin protocol), or has leading/trailing Unicode whitespace (causes `List` round-trip mismatches). |
 
@@ -323,10 +323,10 @@ Secrets are stored exclusively as Keeper `login` records (title = key, password 
 
 | Name | When returned |
 |------|--------------|
-| `ErrNotFound` | Returned by `Get`, `Delete` when no record with that title exists. Caught by `isDurableNotFound` in the Manager. |
+| `ErrNotFound` | Returned by `Get`, `Delete` when no record with that title exists. Alias for `storeerr.ErrNotFound`. |
 | `ErrUnavailable` | Returned by `loadManager` when the config file cannot be loaded (absent or corrupt). Wraps the error from `loadManager`. |
-| `ErrDuplicateTitles` | Returned by `lookupOne` when `GetSecretsByTitle` returns more than one result. Keeper does not enforce title uniqueness; the user must resolve duplicates in the web console. NOT caught by `isDurableNotFound`. |
-| `ErrWrongType` | Returned by `lookupOne` when the matching record's type is not `"login"`. NOT caught by `isDurableNotFound`. |
+| `ErrDuplicateTitles` | Returned by `lookupOne` when `GetSecretsByTitle` returns more than one result. Keeper does not enforce title uniqueness; the user must resolve duplicates in the web console. Does NOT match `errors.Is(err, storeerr.ErrNotFound)` — it is a real error that must surface to the caller. |
+| `ErrWrongType` | Returned by `lookupOne` when the matching record's type is not `"login"`. Does NOT match `errors.Is(err, storeerr.ErrNotFound)` — it is a real error that must surface to the caller. |
 
 ### `Client` struct
 
@@ -360,6 +360,18 @@ Secrets are stored exclusively as Keeper `login` records (title = key, password 
 | `validateOAT(oat string) error` *(free function)* | Rejects tokens that would trigger the SDK's `klog.Warning` with the raw token: allows bare legacy tokens (no colon) and exactly `HOST:BASE64KEY`; rejects empty parts or >2 colon-separated parts. |
 | `validateKey(key string) error` *(free function)* | Rejects empty keys, keys with leading/trailing whitespace, and keys containing embedded control characters (`\n`, `\r`, `\t`, `\x00`). |
 | `newSecureStorage(configPath string) *secureStorage` *(free function)* | Wraps `ksm.NewFileKeyValueStorage` in a `secureStorage` that chmods the config file to `0600` after every write (`Set`, `Delete`, `DeleteAll`, `SaveStorage`). Eliminates the window where the SDK would leave the private key world-readable. The parent directory is secured once in `EnsureVault`, not re-chmodded on every write, so pointing `ksm-config` at a pre-existing directory does not alter that directory's permissions. |
+
+---
+
+## `internal/storeerr/` — Shared Error Sentinels
+
+Leaf package that defines error values shared across all secret-store backends. Backends import this package to avoid an import cycle: `internal/secrets/` (the orchestration layer) also imports it.
+
+| Symbol | Description |
+|--------|-------------|
+| `ErrNotFound` | Returned by any backend when a requested key does not exist. All `errors.Is(err, storeerr.ErrNotFound)` checks in the orchestration layer match this single sentinel regardless of which backend returned the error. |
+
+Each backend (`keychain`, `onepassword`, `keepassxc`, `keeper`) declares `var ErrNotFound = storeerr.ErrNotFound` — callers that import a backend directly can still write `errors.Is(err, keychain.ErrNotFound)` and it resolves to the same value.
 
 ---
 
@@ -402,12 +414,6 @@ Governs the combined read/write/delete/sync logic across the two `SecretStore` b
 | `(m *Manager) Set(ctx context.Context, key, value string) error` | Calls `kc.EnsureVault` (fatal on error), writes to Keychain (fatal on error), then calls `durable.EnsureVault` + `durable.Set` (both non-fatal; warnings only). |
 | `(m *Manager) Delete(ctx context.Context, key string) error` | Attempts both backends; collects errors via `errors.Join`; `ErrNotFound` on either side is silently ignored. |
 | `(m *Manager) Sync(ctx context.Context) (synced int, err error)` | Lists all keys in the durable store, fetches each, writes to Keychain. Returns count of successfully written keys. For KeePassXC only, calls `durable.EnsureVault` first so the `.kdbx` file can be created on a fresh machine; for remote-backed backends (1Password) Sync does NOT auto-create — a mistyped vault name must surface as a listing error rather than silently create an empty vault. |
-
-### Key unexported functions
-
-| Signature | Description |
-|-----------|-------------|
-| `isDurableNotFound(err error) bool` | Returns true when `err` is `onepassword.ErrNotFound`, `keepassxc.ErrNotFound`, or `keeper.ErrNotFound`. Used by `Get` and `Delete` to treat any durable-backend "not found" uniformly. |
 
 ---
 

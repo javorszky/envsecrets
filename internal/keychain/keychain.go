@@ -24,10 +24,12 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/javorszky/envsecrets/internal/storeerr"
 )
 
 // ErrNotFound is returned when a keychain entry does not exist.
-var ErrNotFound = errors.New("keychain: entry not found")
+var ErrNotFound = storeerr.ErrNotFound
 
 // svcePattern matches `"svce"<blob>="<value>"` lines in dump-keychain output.
 var svcePattern = regexp.MustCompile(`"svce"<blob>="([^"]*)"`)

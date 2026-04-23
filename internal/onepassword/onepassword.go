@@ -16,10 +16,12 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/javorszky/envsecrets/internal/storeerr"
 )
 
 // ErrNotFound is returned when a 1Password item does not exist.
-var ErrNotFound = errors.New("1password: item not found")
+var ErrNotFound = storeerr.ErrNotFound
 
 // ErrUnavailable is returned when the `op` binary is not installed or the
 // local app is not running / unlocked.

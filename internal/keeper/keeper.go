@@ -26,10 +26,12 @@ import (
 
 	ksm "github.com/keeper-security/secrets-manager-go/core"
 	"golang.org/x/term"
+
+	"github.com/javorszky/envsecrets/internal/storeerr"
 )
 
 // ErrNotFound is returned when a Keeper record does not exist.
-var ErrNotFound = errors.New("keeper: record not found")
+var ErrNotFound = storeerr.ErrNotFound
 
 // ErrUnavailable is returned when the KSM config file is absent (not yet initialised).
 var ErrUnavailable = errors.New("keeper: not initialised — run a write command to set up credentials")

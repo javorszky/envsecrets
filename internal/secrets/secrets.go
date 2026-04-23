@@ -25,6 +25,7 @@ import (
 	"github.com/javorszky/envsecrets/internal/keeper"
 	"github.com/javorszky/envsecrets/internal/keychain"
 	"github.com/javorszky/envsecrets/internal/onepassword"
+	"github.com/javorszky/envsecrets/internal/storeerr"
 )
 
 // SecretStore is the interface that all backends implement.
@@ -123,15 +124,6 @@ func (m *Manager) WithWarningWriter(w io.Writer) *Manager {
 	return m
 }
 
-// isDurableNotFound reports whether err represents a "not found" response from
-// any supported durable backend. ErrDuplicateTitles and ErrWrongType are NOT
-// treated as "not found" — they are real errors that must surface to the caller.
-func isDurableNotFound(err error) bool {
-	return errors.Is(err, onepassword.ErrNotFound) ||
-		errors.Is(err, keepassxc.ErrNotFound) ||
-		errors.Is(err, keeper.ErrNotFound)
-}
-
 // Get retrieves a secret by key.
 //
 //  1. Keychain (fast path)
@@ -142,7 +134,7 @@ func (m *Manager) Get(ctx context.Context, key string) (string, error) {
 		return val, nil
 	}
 
-	if !errors.Is(err, keychain.ErrNotFound) {
+	if !errors.Is(err, storeerr.ErrNotFound) {
 		return "", fmt.Errorf("keychain read: %w", err)
 	}
 
@@ -153,7 +145,7 @@ func (m *Manager) Get(ctx context.Context, key string) (string, error) {
 
 	val, err = m.durable.Get(ctx, key)
 	if err != nil {
-		if isDurableNotFound(err) {
+		if errors.Is(err, storeerr.ErrNotFound) {
 			return "", fmt.Errorf("key %q not found in keychain or %s", key, m.durableName)
 		}
 
@@ -209,12 +201,12 @@ func (m *Manager) Set(ctx context.Context, key, value string) error {
 func (m *Manager) Delete(ctx context.Context, key string) error {
 	var errs []error
 
-	if err := m.kc.Delete(ctx, key); err != nil && !errors.Is(err, keychain.ErrNotFound) {
+	if err := m.kc.Delete(ctx, key); err != nil && !errors.Is(err, storeerr.ErrNotFound) {
 		errs = append(errs, fmt.Errorf("keychain delete: %w", err))
 	}
 
 	if m.durable.Available(ctx) {
-		if err := m.durable.Delete(ctx, key); err != nil && !isDurableNotFound(err) {
+		if err := m.durable.Delete(ctx, key); err != nil && !errors.Is(err, storeerr.ErrNotFound) {
 			errs = append(errs, fmt.Errorf("%s delete: %w", m.durableName, err))
 		}
 	} else {
