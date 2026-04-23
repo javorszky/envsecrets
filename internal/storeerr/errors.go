@@ -1,7 +1,7 @@
 // Package storeerr defines sentinel errors shared across all secret-store
-// backends. Backends import this package to avoid a cycle: secrets/ (the
-// orchestration layer) also imports it, so errors can be compared uniformly
-// with a single errors.Is call.
+// backends. Backends import this package to avoid a cycle: internal/secrets
+// (the orchestration layer) also imports it, so errors can be compared
+// uniformly with a single errors.Is call.
 package storeerr
 
 import "errors"
