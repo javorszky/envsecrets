@@ -41,10 +41,6 @@ Assisted-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 
 ## Toolchain
 
-Go binary: `/Users/javorszky/.goenv/shims/go`
-
-Always use this full path when invoking `go` commands (build, get, test, vet, etc.). Do not search for the binary — it will not be on the default PATH in the Claude shell environment.
-
 **Local vendoring for AI agents.** After any `go get` or `go mod tidy`, run `go mod vendor` to update the local `vendor/` directory. Read SDK source from `vendor/` — never reach into the global module cache (`~/go/pkg/mod/`). The `vendor/` directory is intentionally NOT committed to the repository; it exists only as a local development convenience for reading dependency source.
 
 ## Branch Workflow

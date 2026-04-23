@@ -123,26 +123,36 @@ func (c *Client) EnsureVault(_ context.Context) (bool, error) {
 		// Pre-create the config file at 0600 so the SDK never gets the chance
 		// to call os.Create (which writes at 0666). The SDK's createConfigFileIfMissing
 		// checks existence before creating, so it will find this file and skip its own create.
+		//
+		// Track whether this run created the file. On failure we only remove the
+		// file if we created it — if os.ErrExist fired, another process owns it and
+		// we must not delete it.
+		created := false
 		f, createErr := os.OpenFile(c.configPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0600)
 		if createErr != nil && !errors.Is(createErr, os.ErrExist) {
 			return false, fmt.Errorf("keeper: create config file: %w", createErr)
 		}
 		if createErr == nil {
+			created = true
 			_, _ = f.WriteString("{}")
 			_ = f.Close()
 		}
 
 		sm, err := c.initManager(oat)
 		if err != nil {
-			_ = os.Remove(c.configPath)
+			if created {
+				_ = os.Remove(c.configPath)
+			}
 			return false, err
 		}
 
 		// Probe confirms the OAT was accepted and the private key is now stored.
 		if _, probeErr := sm.GetSecrets([]string{}); probeErr != nil {
 			// Remove the partial config so the next run re-prompts rather than
-			// failing with a stale/corrupt file.
-			_ = os.Remove(c.configPath)
+			// failing with a stale/corrupt file. Only remove if we created it.
+			if created {
+				_ = os.Remove(c.configPath)
+			}
 			return false, fmt.Errorf("keeper: verify OAT: %w", probeErr)
 		}
 
@@ -152,11 +162,13 @@ func (c *Client) EnsureVault(_ context.Context) (bool, error) {
 		return true, nil
 	}
 
-	// Config exists — tighten permissions in case the file was created by an
-	// older version (or manually) with broader perms. This is best-effort:
-	// chmod failures on an existing file are non-fatal because the subsequent
-	// verify call would surface any real access problem.
-	_ = os.Chmod(filepath.Dir(c.configPath), 0700)
+	// Config exists — tighten permissions on the file itself in case it was
+	// created by an older version (or manually) with broader perms. This is
+	// best-effort: a chmod failure is non-fatal because the subsequent verify
+	// call surfaces any real access problem.
+	// Note: we intentionally do NOT chmod the parent directory here. The user
+	// may have placed the config in a shared or pre-existing directory, and
+	// silently restricting its permissions would be unexpected.
 	_ = os.Chmod(c.configPath, 0600)
 
 	sm, err := c.loadManager()

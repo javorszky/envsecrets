@@ -130,7 +130,7 @@ Records which sources contributed a value for one config field and which is winn
 
 ### `Config` struct
 
-Governs all resolved runtime configuration. The six configurable fields carry struct tags that drive the entire config system. The `cmd` layer reads from this after `Load` returns and after `ApplyFlag` calls.
+Governs all resolved runtime configuration. The eight configurable fields carry struct tags that drive the entire config system. The `cmd` layer reads from this after `Load` returns and after `ApplyFlag` calls.
 
 | Field | Type | Struct tags | Description |
 |-------|------|-------------|-------------|
