@@ -98,11 +98,8 @@ func (c *Client) Available(_ context.Context) bool {
 // First-time path: prompts for a One-Time Access Token without echo (TTY) or
 // reads it from a pipe (non-TTY), validates the token format before handing it
 // to the SDK (prevents the SDK from logging the raw token on malformed input),
-// registers the device with KSM, and secures the written config file to 0600.
-// The file is pre-created at 0600 before the SDK is initialised, eliminating
-// the race window where the SDK's os.Create would write at 0666. On probe
-// failure the partial config is removed so the next run re-prompts rather than
-// failing with a stale file.
+// registers the device with KSM. On probe failure the partial config is removed
+// so the next run re-prompts rather than failing with a stale file.
 //
 // Subsequent path: loads the config and runs a GetSecrets probe to confirm
 // the stored credentials are still valid.
@@ -110,7 +107,7 @@ func (c *Client) Available(_ context.Context) bool {
 // Returns (true, nil) when the config was newly created; (false, nil) when it
 // already existed and credentials verified successfully.
 func (c *Client) EnsureVault(_ context.Context) (bool, error) {
-	if err := os.MkdirAll(filepath.Dir(c.configPath), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(c.configPath), 0755); err != nil {
 		return false, fmt.Errorf("keeper: create config dir: %w", err)
 	}
 
@@ -120,39 +117,17 @@ func (c *Client) EnsureVault(_ context.Context) (bool, error) {
 			return false, err
 		}
 
-		// Pre-create the config file at 0600 so the SDK never gets the chance
-		// to call os.Create (which writes at 0666). The SDK's createConfigFileIfMissing
-		// checks existence before creating, so it will find this file and skip its own create.
-		//
-		// Track whether this run created the file. On failure we only remove the
-		// file if we created it — if os.ErrExist fired, another process owns it and
-		// we must not delete it.
-		created := false
-		f, createErr := os.OpenFile(c.configPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0600)
-		if createErr != nil && !errors.Is(createErr, os.ErrExist) {
-			return false, fmt.Errorf("keeper: create config file: %w", createErr)
-		}
-		if createErr == nil {
-			created = true
-			_, _ = f.WriteString("{}")
-			_ = f.Close()
-		}
-
 		sm, err := c.initManager(oat)
 		if err != nil {
-			if created {
-				_ = os.Remove(c.configPath)
-			}
+			_ = os.Remove(c.configPath)
 			return false, err
 		}
 
 		// Probe confirms the OAT was accepted and the private key is now stored.
 		if _, probeErr := sm.GetSecrets([]string{}); probeErr != nil {
 			// Remove the partial config so the next run re-prompts rather than
-			// failing with a stale/corrupt file. Only remove if we created it.
-			if created {
-				_ = os.Remove(c.configPath)
-			}
+			// failing with a stale/corrupt file.
+			_ = os.Remove(c.configPath)
 			return false, fmt.Errorf("keeper: verify OAT: %w", probeErr)
 		}
 
@@ -161,15 +136,6 @@ func (c *Client) EnsureVault(_ context.Context) (bool, error) {
 
 		return true, nil
 	}
-
-	// Config exists — tighten permissions on the file itself in case it was
-	// created by an older version (or manually) with broader perms. This is
-	// best-effort: a chmod failure is non-fatal because the subsequent verify
-	// call surfaces any real access problem.
-	// Note: we intentionally do NOT chmod the parent directory here. The user
-	// may have placed the config in a shared or pre-existing directory, and
-	// silently restricting its permissions would be unexpected.
-	_ = os.Chmod(c.configPath, 0600)
 
 	sm, err := c.loadManager()
 	if err != nil {
@@ -368,7 +334,7 @@ func (c *Client) loadManager() (*ksm.SecretsManager, error) {
 	}
 
 	sm := ksm.NewSecretsManager(&ksm.ClientOptions{
-		Config: newSecureStorage(c.configPath),
+		Config: ksm.NewFileKeyValueStorage(c.configPath),
 	})
 	if sm == nil {
 		return nil, fmt.Errorf("keeper: failed to load config from %s: %w", c.configPath, ErrUnavailable)
@@ -386,7 +352,7 @@ func (c *Client) loadManager() (*ksm.SecretsManager, error) {
 func (c *Client) initManager(oat string) (*ksm.SecretsManager, error) {
 	sm := ksm.NewSecretsManager(&ksm.ClientOptions{
 		Token:  oat,
-		Config: newSecureStorage(c.configPath),
+		Config: ksm.NewFileKeyValueStorage(c.configPath),
 	})
 	if sm == nil {
 		return nil, fmt.Errorf("keeper: failed to initialise SDK with provided token")
@@ -463,60 +429,4 @@ func validateOAT(oat string) error {
 	}
 
 	return nil
-}
-
-// secureStorage wraps the SDK's IKeyValueStorage and chmods the config file to
-// 0600 after every write. The SDK's fileKeyValueStorage writes at 0666; without
-// this wrapper the private key is world-readable between the SDK write and any
-// deferred chmod call.
-type secureStorage struct {
-	inner      ksm.IKeyValueStorage
-	configPath string
-}
-
-func newSecureStorage(configPath string) *secureStorage {
-	return &secureStorage{
-		inner:      ksm.NewFileKeyValueStorage(configPath),
-		configPath: configPath,
-	}
-}
-
-func (s *secureStorage) lockDown() {
-	// Best-effort: chmod failures are non-fatal. The data is written and the
-	// permissions will be corrected on the next successful lockDown call.
-	// Only the file is chmodded here: the parent directory is secured once
-	// during EnsureVault. Re-chmodding the directory on every write would
-	// be surprising for users who point ksm-config at a file inside a shared
-	// or pre-existing directory (e.g. "."), which is not our to lock down.
-	_ = os.Chmod(s.configPath, 0600)
-}
-
-func (s *secureStorage) ReadStorage() map[string]interface{} { return s.inner.ReadStorage() }
-func (s *secureStorage) Contains(key ksm.ConfigKey) bool     { return s.inner.Contains(key) }
-func (s *secureStorage) IsEmpty() bool                       { return s.inner.IsEmpty() }
-func (s *secureStorage) Get(key ksm.ConfigKey) string        { return s.inner.Get(key) }
-
-func (s *secureStorage) SaveStorage(updatedConfig map[string]interface{}) {
-	s.inner.SaveStorage(updatedConfig)
-	s.lockDown()
-}
-
-func (s *secureStorage) Set(key ksm.ConfigKey, value interface{}) map[string]interface{} {
-	// inner.Set calls inner.SaveStorage (not our wrapper's SaveStorage), so we
-	// must chmod here explicitly rather than relying on our SaveStorage override.
-	result := s.inner.Set(key, value)
-	s.lockDown()
-	return result
-}
-
-func (s *secureStorage) Delete(key ksm.ConfigKey) map[string]interface{} {
-	result := s.inner.Delete(key)
-	s.lockDown()
-	return result
-}
-
-func (s *secureStorage) DeleteAll() map[string]interface{} {
-	result := s.inner.DeleteAll()
-	s.lockDown()
-	return result
 }
