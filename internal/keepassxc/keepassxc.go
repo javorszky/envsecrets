@@ -10,8 +10,6 @@ package keepassxc
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -22,8 +20,13 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/javorszky/envsecrets/internal/loginkc"
 	"github.com/javorszky/envsecrets/internal/storeerr"
 )
+
+// loginKeychainServicePrefix is the prefix for the macOS login-keychain service
+// name used to store the KeePassXC database password.
+const loginKeychainServicePrefix = "envsecrets-keepassxc-"
 
 // ErrNotFound is returned when a KeePassXC entry does not exist.
 var ErrNotFound = storeerr.ErrNotFound
@@ -100,7 +103,7 @@ func (c *Client) EnsureVault(ctx context.Context) (bool, error) {
 	// Reading the password from the keychain alone is insufficient: the DB
 	// may have been re-keyed externally or may be corrupted. Run a cheap
 	// keepassxc-cli ls to confirm the file can be opened.
-	pw, err := c.readPassword(ctx)
+	pw, err := loginkc.ReadWithFallback(ctx, loginKeychainServicePrefix+c.stem, c.readAccessFile)
 	if err != nil {
 		return false, fmt.Errorf("keepassxc: cannot read database password: %w", err)
 	}
@@ -131,7 +134,7 @@ func (c *Client) Get(ctx context.Context, key string) (string, error) {
 		return "", err
 	}
 
-	pw, err := c.readPassword(ctx)
+	pw, err := loginkc.ReadWithFallback(ctx, loginKeychainServicePrefix+c.stem, c.readAccessFile)
 	if err != nil {
 		return "", err
 	}
@@ -193,7 +196,7 @@ func (c *Client) Delete(ctx context.Context, key string) error {
 		return err
 	}
 
-	pw, err := c.readPassword(ctx)
+	pw, err := loginkc.ReadWithFallback(ctx, loginKeychainServicePrefix+c.stem, c.readAccessFile)
 	if err != nil {
 		return err
 	}
@@ -221,7 +224,7 @@ func (c *Client) Delete(ctx context.Context, key string) error {
 // List returns the titles of all root-level entries in the database,
 // excluding group names and indented sub-entries.
 func (c *Client) List(ctx context.Context) ([]string, error) {
-	pw, err := c.readPassword(ctx)
+	pw, err := loginkc.ReadWithFallback(ctx, loginKeychainServicePrefix+c.stem, c.readAccessFile)
 	if err != nil {
 		return nil, err
 	}
@@ -322,7 +325,7 @@ func ParseListOutput(output string) []string {
 // --- private helpers -----------------------------------------------------------
 
 func (c *Client) add(ctx context.Context, key, value string) error {
-	pw, err := c.readPassword(ctx)
+	pw, err := loginkc.ReadWithFallback(ctx, loginKeychainServicePrefix+c.stem, c.readAccessFile)
 	if err != nil {
 		return err
 	}
@@ -352,7 +355,7 @@ func (c *Client) add(ctx context.Context, key, value string) error {
 }
 
 func (c *Client) edit(ctx context.Context, key, value string) error {
-	pw, err := c.readPassword(ctx)
+	pw, err := loginkc.ReadWithFallback(ctx, loginKeychainServicePrefix+c.stem, c.readAccessFile)
 	if err != nil {
 		return err
 	}
@@ -383,7 +386,7 @@ func (c *Client) edit(ctx context.Context, key, value string) error {
 }
 
 func (c *Client) createDB(ctx context.Context) error {
-	pw, err := generatePassword()
+	pw, err := loginkc.GeneratePassword()
 	if err != nil {
 		return fmt.Errorf("generating database password: %w", err)
 	}
@@ -409,7 +412,7 @@ func (c *Client) createDB(ctx context.Context) error {
 		return fmt.Errorf("creating keepassxc database: %w\n%s", err, out)
 	}
 
-	if err := c.storePassword(ctx, pw); err != nil {
+	if err := loginkc.Store(ctx, loginKeychainServicePrefix+c.stem, pw); err != nil {
 		// Password not persisted — the database is unrecoverable. Delete it so
 		// EnsureVault can attempt a clean creation next time.
 		if removeErr := os.Remove(c.dbPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
@@ -422,84 +425,6 @@ func (c *Client) createDB(ctx context.Context) error {
 	// Best-effort: write an access-details file to ~/Documents.
 	if err := c.writeAccessFile(pw); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not write keepassxc access file: %v\n", err)
-	}
-
-	return nil
-}
-
-// readPassword retrieves the database password from the macOS login keychain
-// under service "envsecrets-keepassxc-<stem>". Falls back to the access-details
-// file in ~/Documents and restores the keychain entry if the item is genuinely
-// not found (exit code 44).
-//
-// The fallback is only attempted when `security` exits with code 44 ("The
-// specified item could not be found in the keychain"). Any other failure —
-// context cancellation, binary not in PATH, permission denied, keychain
-// locked — is returned immediately so callers see the real cause rather than
-// a confusing access-file error.
-func (c *Client) readPassword(ctx context.Context) (string, error) {
-	svc := "envsecrets-keepassxc-" + c.stem
-
-	cmd := exec.CommandContext(ctx,
-		"security", "find-generic-password",
-		"-a", currentUser(),
-		"-s", svc,
-		"-w",
-	)
-
-	out, err := cmd.Output()
-	if err == nil {
-		return strings.TrimSuffix(string(out), "\n"), nil
-	}
-
-	// Only fall back to the access file when security reports that the item was
-	// not found (exit code 44). Any other error — context cancelled, binary
-	// missing, permission denied, keychain locked — is returned directly.
-	exitErr, ok := errors.AsType[*exec.ExitError](err)
-	if !ok {
-		return "", fmt.Errorf("reading password for %q from login keychain: %w", svc, err)
-	}
-
-	if exitErr.ExitCode() != 44 {
-		// Include security's stderr so callers see the real diagnostic
-		// (e.g. "errSecInteractionNotAllowed") rather than just "exit status N".
-		if msg := strings.TrimSpace(string(exitErr.Stderr)); msg != "" {
-			return "", fmt.Errorf("reading password for %q from login keychain: %w\n%s", svc, err, msg)
-		}
-
-		return "", fmt.Errorf("reading password for %q from login keychain: %w", svc, err)
-	}
-
-	// Login-keychain item not found — fall back to the access-details file.
-	pw, fileErr := c.readAccessFile()
-	if fileErr != nil {
-		return "", fmt.Errorf(
-			"reading password for %q from login keychain (%w) and from access file (%v)",
-			svc, err, fileErr,
-		)
-	}
-
-	// Restore the login-keychain entry so next time is seamless.
-	_ = c.storePassword(ctx, pw)
-
-	return pw, nil
-}
-
-// storePassword saves the database password in the macOS login keychain under
-// service "envsecrets-keepassxc-<stem>". The -U flag acts as an upsert.
-func (c *Client) storePassword(ctx context.Context, password string) error {
-	svc := "envsecrets-keepassxc-" + c.stem
-
-	cmd := exec.CommandContext(ctx,
-		"security", "add-generic-password",
-		"-U",
-		"-a", currentUser(),
-		"-s", svc,
-		"-w", password,
-	)
-
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("storing password for %q: %w\n%s", svc, err, out)
 	}
 
 	return nil
@@ -633,21 +558,3 @@ func (c *Client) readAccessFile() (string, error) {
 }
 
 // --- small helpers -------------------------------------------------------------
-
-func generatePassword() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-
-	return hex.EncodeToString(b), nil
-}
-
-func currentUser() string {
-	u := os.Getenv("USER")
-	if u == "" {
-		u = os.Getenv("LOGNAME")
-	}
-
-	return u
-}
