@@ -14,8 +14,6 @@ package keychain
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -25,8 +23,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/javorszky/envsecrets/internal/loginkc"
 	"github.com/javorszky/envsecrets/internal/storeerr"
 )
+
+// loginKeychainServicePrefix is the prefix for the macOS login-keychain service
+// name used to store the keychain file's password.
+const loginKeychainServicePrefix = "envsecrets-keychain-"
 
 // ErrNotFound is returned when a keychain entry does not exist.
 var ErrNotFound = storeerr.ErrNotFound
@@ -72,7 +75,7 @@ func (c *Client) Get(ctx context.Context, service string) (string, error) {
 	cmd := exec.CommandContext(ctx,
 		"security",
 		"find-generic-password",
-		"-a", currentUser(),
+		"-a", loginkc.CurrentUser(),
 		"-s", service,
 		"-w",
 		c.keychainPath,
@@ -113,7 +116,7 @@ func (c *Client) Set(ctx context.Context, service, value string) error {
 	cmd := exec.CommandContext(ctx,
 		"security",
 		"add-generic-password",
-		"-a", currentUser(),
+		"-a", loginkc.CurrentUser(),
 		"-s", service,
 		"-w", value,
 		c.keychainPath,
@@ -235,7 +238,7 @@ func (c *Client) ensure(ctx context.Context) error {
 }
 
 func (c *Client) createKeychainFile(ctx context.Context) error {
-	password, err := generatePassword()
+	password, err := loginkc.GeneratePassword()
 	if err != nil {
 		return fmt.Errorf("generating keychain password: %w", err)
 	}
@@ -269,7 +272,7 @@ func (c *Client) createKeychainFile(ctx context.Context) error {
 	}
 
 	// Store the password in the login keychain for later retrieval.
-	if err := c.storeKeychainPassword(ctx, password); err != nil {
+	if err := loginkc.Store(ctx, loginKeychainServicePrefix+c.vault, password); err != nil {
 		return fmt.Errorf("storing keychain password: %w", err)
 	}
 
@@ -285,7 +288,7 @@ func (c *Client) createKeychainFile(ctx context.Context) error {
 }
 
 func (c *Client) unlockKeychainFile(ctx context.Context) error {
-	password, err := c.readKeychainPassword(ctx)
+	password, err := loginkc.ReadWithFallback(ctx, loginKeychainServicePrefix+c.vault, c.readAccessFile)
 	if err != nil {
 		return fmt.Errorf("reading keychain password: %w", err)
 	}
@@ -302,90 +305,6 @@ func (c *Client) unlockKeychainFile(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-// storeKeychainPassword saves the keychain file's password into the user's
-// login keychain under service "envsecrets-keychain-<vault>". The -U flag
-// makes add-generic-password act as an upsert so a stale entry from a
-// previous installation never causes a "duplicate item" failure.
-func (c *Client) storeKeychainPassword(ctx context.Context, password string) error {
-	svc := "envsecrets-keychain-" + c.vault
-
-	cmd := exec.CommandContext(ctx,
-		"security",
-		"add-generic-password",
-		"-U", // update existing entry if present
-		"-a", currentUser(),
-		"-s", svc,
-		"-w", password,
-	)
-
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("storing password for %q: %w\n%s", svc, err, out)
-	}
-
-	return nil
-}
-
-// readKeychainPassword retrieves the keychain file's password.
-//
-// Primary source: the login keychain (service "envsecrets-keychain-<vault>").
-//
-// Fallback: if that entry is not found (security exits with code 44, e.g.
-// after a machine migration or a keychain reset), the access-details file
-// written to ~/Documents at creation time is read instead. The entry is then
-// restored in the login keychain so subsequent calls are fast again.
-//
-// Any other failure — context cancellation, binary not in PATH, permission
-// denied, keychain locked — is returned immediately so callers see the real
-// cause rather than a confusing access-file error.
-func (c *Client) readKeychainPassword(ctx context.Context) (string, error) {
-	svc := "envsecrets-keychain-" + c.vault
-
-	cmd := exec.CommandContext(ctx,
-		"security",
-		"find-generic-password",
-		"-a", currentUser(),
-		"-s", svc,
-		"-w",
-	)
-
-	out, err := cmd.Output()
-	if err == nil {
-		return ParsePasswordOutput(out), nil
-	}
-
-	// Only fall back to the access-details file when security reports that the
-	// item was not found (exit code 44). Any other error — context cancelled,
-	// binary missing, permission denied, keychain locked — is returned directly.
-	exitErr, ok := errors.AsType[*exec.ExitError](err)
-	if !ok {
-		return "", fmt.Errorf("reading password for %q from login keychain: %w", svc, err)
-	}
-
-	if exitErr.ExitCode() != 44 {
-		// Include security's stderr so callers see the real diagnostic
-		// (e.g. "errSecInteractionNotAllowed") rather than just "exit status N".
-		if msg := strings.TrimSpace(string(exitErr.Stderr)); msg != "" {
-			return "", fmt.Errorf("reading password for %q from login keychain: %w\n%s", svc, err, msg)
-		}
-
-		return "", fmt.Errorf("reading password for %q from login keychain: %w", svc, err)
-	}
-
-	// Login-keychain item not found — try the access-details file.
-	password, fileErr := c.readAccessFile()
-	if fileErr != nil {
-		return "", fmt.Errorf(
-			"reading password for %q from login keychain (%w) and from access file %s (%v)",
-			svc, err, c.accessFilePath(), fileErr,
-		)
-	}
-
-	// Restore the login-keychain entry so next time is seamless.
-	_ = c.storeKeychainPassword(ctx, password)
-
-	return password, nil
 }
 
 // --- access-details file -----------------------------------------------------
@@ -483,7 +402,7 @@ func (c *Client) remove(ctx context.Context, service string) error {
 	cmd := exec.CommandContext(ctx,
 		"security",
 		"delete-generic-password",
-		"-a", currentUser(),
+		"-a", loginkc.CurrentUser(),
 		"-s", service,
 		c.keychainPath,
 	)
@@ -498,24 +417,4 @@ func (c *Client) remove(ctx context.Context, service string) error {
 	}
 
 	return nil
-}
-
-// generatePassword returns a 64-character hex string from 32 random bytes.
-func generatePassword() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-
-	return hex.EncodeToString(b), nil
-}
-
-// currentUser returns the OS username, falling back to LOGNAME.
-func currentUser() string {
-	u := os.Getenv("USER")
-	if u == "" {
-		u = os.Getenv("LOGNAME")
-	}
-
-	return u
 }
